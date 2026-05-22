@@ -1204,15 +1204,14 @@ void Renderer::ComputeMesh() {
 void Renderer::UpdatePose(JNIEnv *env) {
     /*
      * ВАЖНО:
-     * Для настоящего режима очков CardboardStereo + Cardboard QR
-     * используем именно CardboardHeadTracker.
+     * Для любого режима двух глаз используем CardboardHeadTracker.
      *
-     * Android SensorManager оставляем только как fallback,
-     * когда Cardboard QR нет или режим не настоящий Cardboard.
+     * gCardboardReady отвечает только за distortion / коррекцию линз.
+     * Если QR нет, DrawFrame рисует простой split-screen,
+     * но поворот головы всё равно должен идти через CardboardHeadTracker.
      */
-
     const bool useCardboardTracker =
-            outputMode == OutputMode::CARDBOARD_STEREO && gCardboardReady;
+            outputMode == OutputMode::CARDBOARD_STEREO;
 
     if (useCardboardTracker) {
         glm::quat headOrientationQuat;
@@ -1271,10 +1270,8 @@ void Renderer::UpdatePose(JNIEnv *env) {
     }
 
     /*
-     * Fallback:
-     * Если Cardboard QR нет, используем Android SensorManager.
-     * Этот режим нужен, чтобы не было чёрного экрана,
-     * но для настоящих очков он хуже CardboardHeadTracker.
+     * Android SensorManager fallback оставляем только для MonoLeft / MonoRight.
+     * Для двух глаз он больше не используется.
      */
     if (useManualRotation) {
         glm::mat4 yawMatrix = glm::rotate(
@@ -1285,13 +1282,10 @@ void Renderer::UpdatePose(JNIEnv *env) {
 
         glm::mat4 pitchMatrix = glm::rotate(
                 glm::mat4(1.0f),
-                -manualPitch,
+                manualPitch,
                 glm::vec3(1.0f, 0.0f, 0.0f)
         );
 
-        /*
-         * Roll лучше отключить, чтобы картинка не заваливалась в очках.
-         */
         glm::mat4 rollMatrix = glm::mat4(1.0f);
 
         viewMatrix = rollMatrix * pitchMatrix * yawMatrix;
@@ -1307,29 +1301,9 @@ void Renderer::UpdatePose(JNIEnv *env) {
         return;
     }
 
-    /*
-     * Последний fallback — обычный Cardboard tracker даже без QR.
-     */
-    glm::quat headOrientationQuat;
-    glm::vec3 headPosition;
-
-    CardboardHeadTracker_getPose(
-            cardboardHeadTracker.get(),
-            static_cast<int64_t>(GetBootTimeNano() + kPredictionTimeWithoutVsyncNanos),
-            kLandscapeLeft,
-            glm::value_ptr(headPosition),
-            glm::value_ptr(headOrientationQuat)
-    );
-
-    viewMatrix = glm::toMat4(headOrientationQuat);
-
-    const glm::vec4 pointVector = NEG_Z_AXIS * viewMatrix;
-
-    pitch = asinf(pointVector.y);
-
-    if (pitch <= 1.55f) {
-        yaw = -atan2f(pointVector.x, pointVector.z);
-    }
+    viewMatrix = glm::mat4(1.0f);
+    yaw = 0.0f;
+    pitch = 0.0f;
 }
 
 void Renderer::OnVideoSizeChanged(int width, int height) {

@@ -567,7 +567,7 @@ class MainActivity : AppCompatActivity(),
         NativeLibrary.nativeSetManualRotation(
             nativeApp,
             yaw,
-            pitch,
+            -pitch,
             roll
         )
     }
