@@ -1201,11 +1201,36 @@ bool Renderer::UpdateDeviceParams() {
     if (outputMode == OutputMode::CARDBOARD_STEREO) {
         uint8_t *cardboardQrCode = nullptr;
         int size = 0;
+        bool mustDestroyQrCode = false;
 
+        /*
+         * Сначала пробуем загрузить QR-профиль очков, который пользователь
+         * сканировал через пункт меню Switch Cardboard viewer.
+         */
         CardboardQrCode_getSavedDeviceParams(&cardboardQrCode, &size);
 
         if (size > 0 && cardboardQrCode != nullptr) {
-            LOG_DEBUG("Cardboard params loaded, size=%d", size);
+            mustDestroyQrCode = true;
+            LOG_DEBUG("Cardboard saved params loaded, size=%d", size);
+        } else {
+            /*
+             * Если QR-профиля нет, раньше включался простой split-screen без
+             * линзовой формы. Из-за этого 360° выглядело как два прямоугольника.
+             *
+             * Теперь используем встроенный профиль Cardboard V1. Он даёт
+             * нормальную Cardboard-distortion/маску под каждый глаз сразу после
+             * установки приложения, даже без сканирования QR-кода.
+             *
+             * ВАЖНО: по документации CardboardQrCode_getCardboardV1DeviceParams
+             * возвращает указатель, который НЕ нужно освобождать через destroy.
+             */
+            LOG_ERROR("Cardboard saved params not available. Using built-in Cardboard V1 params.");
+            CardboardQrCode_getCardboardV1DeviceParams(&cardboardQrCode, &size);
+            mustDestroyQrCode = false;
+        }
+
+        if (size > 0 && cardboardQrCode != nullptr) {
+            LOG_DEBUG("Cardboard params ready, size=%d, destroy=%d", size, mustDestroyQrCode ? 1 : 0);
 
             cardboardLensDistortion = CardboardLensDistortionPointer(
                     CardboardLensDistortion_create(
@@ -1216,17 +1241,13 @@ bool Renderer::UpdateDeviceParams() {
                     )
             );
 
-            CardboardQrCode_destroy(cardboardQrCode);
+            if (mustDestroyQrCode) {
+                CardboardQrCode_destroy(cardboardQrCode);
+            }
 
             gCardboardReady = true;
         } else {
-            LOG_ERROR("Cardboard params not available. Using simple stereo fallback.");
-
-            /*
-             * Не return false.
-             * Не outputMode = MONO_LEFT.
-             * Оставляем два глаза, но без Cardboard distortion.
-             */
+            LOG_ERROR("Cardboard params unavailable even after V1 fallback. Using simple stereo fallback.");
             gCardboardReady = false;
         }
     }

@@ -223,6 +223,20 @@ class TeacherControlClient(
         }
     }
 
+    private fun normalizeVideoValue(value: String): String {
+        return value
+            .trim()
+            .lowercase()
+            .replace("-", "_")
+            .replace(" ", "_")
+    }
+
+    private fun allVideoModeTokens(vararg values: String): String {
+        return values
+            .joinToString("_") { normalizeVideoValue(it) }
+            .trim('_')
+    }
+
     private fun parseInputMode(
         videoMode: String,
         projection: String,
@@ -232,23 +246,34 @@ class TeacherControlClient(
             inputModeRaw.isNotBlank() -> inputModeRaw
             projection.isNotBlank() -> projection
             else -> videoMode
-        }.lowercase()
+        }.let { normalizeVideoValue(it) }
 
-        return when (value) {
-            "360", "360_mono", "360_stereo",
-            "equirect360", "equirect_360", "equirectangular360", "equirectangular_360" ->
-                InputMode.Equirect360
+        val all = allVideoModeTokens(videoMode, projection, inputModeRaw)
 
-            "180", "180_mono", "180_stereo",
-            "equirect180", "equirect_180", "equirectangular180", "equirectangular_180" ->
-                InputMode.Equirect180
+        return when {
+            // 180 stereo / VR180 / equirectangular 180
+            value in setOf(
+                "180", "180_mono", "180_stereo", "stereo_180", "vr180",
+                "equirect180", "equirect_180", "equirectangular180", "equirectangular_180",
+                "equirect_180_stereo", "stereo_equirect_180"
+            ) -> InputMode.Equirect180
 
-            "panorama180", "panorama_180" -> InputMode.Panorama180
-            "panorama360", "panorama_360" -> InputMode.Panorama360
-            "plain", "plain_fov", "flat", "2d" -> InputMode.PlainFov
+            all.contains("180") || all.contains("vr180") -> InputMode.Equirect180
+
+            value in setOf(
+                "360", "360_mono", "360_stereo", "stereo_360", "vr360",
+                "equirect360", "equirect_360", "equirectangular360", "equirectangular_360",
+                "equirect_360_stereo", "stereo_equirect_360"
+            ) -> InputMode.Equirect360
+
+            all.contains("360") || all.contains("vr360") -> InputMode.Equirect360
+
+            value in setOf("panorama180", "panorama_180") -> InputMode.Panorama180
+            value in setOf("panorama360", "panorama_360") -> InputMode.Panorama360
+            value in setOf("plain", "plain_fov", "flat", "2d") -> InputMode.PlainFov
 
             else -> {
-                Log.w(tag, "Unknown inputMode/projection='$value', fallback Equirect360")
+                Log.w(tag, "Unknown inputMode/projection='$value' all='$all', fallback Equirect360")
                 InputMode.Equirect360
             }
         }
@@ -258,33 +283,73 @@ class TeacherControlClient(
         val value = when {
             layout.isNotBlank() -> layout
             else -> videoMode
-        }.lowercase()
+        }.let { normalizeVideoValue(it) }
 
-        return when (value) {
-            "mono", "360_mono", "180_mono", "360" -> InputLayout.Mono
+        val all = allVideoModeTokens(videoMode, layout)
 
-            "stereo", "stereo_horiz", "stereo_horizontal",
-            "side_by_side", "side-by-side", "sbs",
-            "360_stereo", "180_stereo" -> InputLayout.StereoHoriz
+        return when {
+            value in setOf("anaglyph", "anaglyph_red_cyan") -> InputLayout.AnaglyphRedCyan
 
-            "stereo_vert", "stereo_vertical",
-            "top_bottom", "top-bottom", "tb",
-            "over_under", "over-under", "ou" -> InputLayout.StereoVert
+            /*
+             * ВАЖНО ДЛЯ 360:
+             * Обычный 360°-ролик должен отображаться как MONO + EQUIRECT_360 + CARDBOARD_STEREO.
+             * Даже если сервер прислал строку вроде "360_stereo" без явного layout=sbs,
+             * не режем картинку пополам. Иначе 360 начинает выглядеть неправильно.
+             *
+             * Стерео включаем только когда это явно SBS/TB или когда это VR180/180_stereo.
+             */
+            value in setOf("mono", "360", "360_mono", "360_stereo", "stereo_360", "vr360", "equirect_360") ->
+                InputLayout.Mono
 
-            "anaglyph", "anaglyph_red_cyan" -> InputLayout.AnaglyphRedCyan
+            // Vertical stereo / Top-Bottom / Over-Under
+            value in setOf(
+                "stereo_vert", "stereo_vertical", "vertical_stereo",
+                "top_bottom", "topbottom", "tb",
+                "over_under", "overunder", "ou",
+                "180_tb", "180_top_bottom", "180_over_under",
+                "360_tb", "360_top_bottom", "360_over_under"
+            ) -> InputLayout.StereoVert
+
+            all.contains("top_bottom") ||
+                all.contains("over_under") ||
+                all.endsWith("_tb") ||
+                all.contains("_tb_") ||
+                all.endsWith("_ou") ||
+                all.contains("_ou_") -> InputLayout.StereoVert
+
+            // Horizontal stereo / SBS. Для 180_stereo по умолчанию используем SBS.
+            value in setOf(
+                "stereo", "stereo_horiz", "stereo_horizontal", "horizontal_stereo",
+                "side_by_side", "sidebyside", "side_by_side_full", "sbs", "lr", "left_right",
+                "180_stereo", "stereo_180", "180_sbs", "sbs_180", "vr180"
+            ) -> InputLayout.StereoHoriz
+
+            all.contains("vr180") ||
+                all.contains("180_stereo") ||
+                all.contains("stereo_180") ||
+                all.contains("side_by_side") ||
+                all.contains("sidebyside") ||
+                all.endsWith("_sbs") ||
+                all.contains("_sbs_") -> InputLayout.StereoHoriz
+
+            value in setOf("180_mono", "180") -> InputLayout.Mono
 
             else -> {
-                Log.w(tag, "Unknown layout='$value', fallback Mono")
+                Log.w(tag, "Unknown layout='$value' all='$all', fallback Mono")
                 InputLayout.Mono
             }
         }
     }
 
     private fun parseOutputMode(output: String): OutputMode {
-        return when (output.lowercase()) {
-            "cardboard", "cardboard_stereo", "vr", "stereo" -> OutputMode.CardboardStereo
+        return when (normalizeVideoValue(output)) {
+            "cardboard", "cardboard_stereo", "vr", "stereo", "split", "split_screen" ->
+                OutputMode.CardboardStereo
+
             "mono_left", "left", "mono" -> OutputMode.MonoLeft
             "mono_right", "right" -> OutputMode.MonoRight
+
+            // Безопасный default: всегда Cardboard.
             else -> OutputMode.CardboardStereo
         }
     }

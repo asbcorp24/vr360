@@ -5,6 +5,7 @@ import android.graphics.SurfaceTexture
 import android.graphics.SurfaceTexture.OnFrameAvailableListener
 import android.media.MediaPlayer.OnVideoSizeChangedListener
 import android.net.Uri
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.util.Log
 import android.view.Surface
@@ -21,7 +22,7 @@ import java.net.SocketTimeoutException
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * VideoTexturePlayer — видеоплеер, который принимает RTP multicast-поток через LibVLC
+ * VideoTexturePlayer — видеоплеер, который принимает MPEG-TS UDP multicast-поток через LibVLC
  * и выводит видео не на обычный View, а в SurfaceTexture.
  *
  * SurfaceTexture привязана к OpenGL-текстуре texName.
@@ -55,12 +56,14 @@ class VideoTexturePlayer(
         /**
          * RTP payload type.
          *
-         * Для H264 на сервере у тебя PT96.
-         * В SDP ниже это используется как:
-         * m=video 5004 RTP/AVP 96
-         * a=rtpmap:96 H264/90000
+         * Для MPEG-TS этот параметр не используется. Оставлен только для совместимости комментариев.
          */
         private const val RTP_PAYLOAD_TYPE = 96
+
+        /**
+         * Кодек MPEG-TS определяется VLC автоматически. Сервер может слать H264 или H265 внутри TS.
+         */
+        private const val RTP_VIDEO_CODEC = "AUTO_TS"
 
         /**
          * Размер буфера SurfaceTexture.
@@ -84,6 +87,9 @@ class VideoTexturePlayer(
 
     // VLC MediaPlayer, который открывает SDP и принимает RTP.
     private var vlcPlayer: MediaPlayer? = null
+
+    // Android Wi‑Fi по умолчанию может фильтровать multicast. Этот lock разрешает приём 239.x.x.x.
+    private var multicastLock: WifiManager.MulticastLock? = null
 
     /**
      * Флаг: появился новый кадр.
@@ -121,6 +127,9 @@ class VideoTexturePlayer(
 
         // Сначала очищаем старый VLC, Surface и SurfaceTexture.
         cleanup()
+
+        // Обязательно включаем multicast-lock ДО UDP probe и ДО запуска VLC.
+        acquireMulticastLock()
 
         initialized = true
 
@@ -194,7 +203,7 @@ class VideoTexturePlayer(
              * Но на разных телефонах аппаратное декодирование RTP/H264
              * может вести себя по-разному.
              */
-            "--avcodec-hw=disabled"
+            "--avcodec-hw=any"
         )
 
         // Создаём LibVLC.
@@ -255,29 +264,23 @@ class VideoTexturePlayer(
         player.vlcVout.attachViews()
 
         /**
-         * Создаём временный SDP-файл.
-         *
-         * LibVLC через этот SDP понимает:
-         * - какой multicast IP слушать;
-         * - какой порт;
-         * - какой RTP payload type;
-         * - какой кодек.
+         * ВАЖНО: по твоему логу размеры UDP-пакетов 376/564/1316 — это кратно 188 байтам,
+         * то есть сервер шлёт MPEG-TS over UDP multicast, а не RTP.
+         * Поэтому НЕ открываем SDP/live555. Открываем обычный udp:// multicast URI.
          */
-        val sdpFile = createSdpFile()
-        val mediaPath = "file://${sdpFile.absolutePath}"
+        val mediaPath = "udp://@$MULTICAST_IP:$MULTICAST_PORT"
 
-        Log.d(TAG, "Opening SDP path: $mediaPath")
+        Log.d(TAG, "Opening MPEG-TS UDP multicast path: $mediaPath")
 
-        // Создаём VLC Media из SDP-файла.
+        // Создаём VLC Media из udp://@239.0.0.1:5004.
         val media = Media(vlc, Uri.parse(mediaPath))
 
-        // Принудительно используем live555 demux для RTP/SDP.
-        media.addOption(":demux=live555")
+        // Принудительно указываем TS demux. Для MPEG-TS UDP это правильнее, чем live555/RTP.
+        media.addOption(":demux=ts")
 
         // Дублируем cache-настройки на уровне Media.
         media.addOption(":network-caching=300")
         media.addOption(":live-caching=300")
-        media.addOption(":rtp-caching=300")
         media.addOption(":clock-jitter=0")
         media.addOption(":clock-synchro=0")
 
@@ -436,6 +439,47 @@ class VideoTexturePlayer(
         }
 
         surfaceTexture = null
+
+        releaseMulticastLock()
+    }
+
+    /**
+     * Включить разрешение Wi‑Fi на приём multicast-пакетов.
+     * Без этого Android часто фильтрует 239.x.x.x, и VLC получает чёрный экран.
+     */
+    private fun acquireMulticastLock() {
+        try {
+            if (multicastLock?.isHeld == true) return
+
+            val wifi = context.applicationContext
+                .getSystemService(Context.WIFI_SERVICE) as WifiManager
+
+            multicastLock = wifi.createMulticastLock("vr360_rtp_multicast_239_0_0_1")
+            multicastLock?.setReferenceCounted(false)
+            multicastLock?.acquire()
+
+            Log.d(TAG, "MulticastLock acquired for $MULTICAST_IP:$MULTICAST_PORT")
+        } catch (e: Throwable) {
+            Log.e(TAG, "MulticastLock acquire error", e)
+        }
+    }
+
+    /**
+     * Освободить MulticastLock при закрытии плеера.
+     */
+    private fun releaseMulticastLock() {
+        try {
+            multicastLock?.let { lock ->
+                if (lock.isHeld) {
+                    lock.release()
+                    Log.d(TAG, "MulticastLock released")
+                }
+            }
+        } catch (e: Throwable) {
+            Log.e(TAG, "MulticastLock release error", e)
+        } finally {
+            multicastLock = null
+        }
     }
 
     /**
@@ -455,6 +499,13 @@ class VideoTexturePlayer(
          * Если сервер не шлёт SPS/PPS периодически,
          * VLC может не начать декодировать видео при подключении "с середины".
          */
+        val fmtpLine = if (RTP_VIDEO_CODEC == "H264") {
+            "a=fmtp:$RTP_PAYLOAD_TYPE packetization-mode=1\n"
+        } else {
+            // Для H265 не добавляем H264-only packetization-mode.
+            ""
+        }
+
         val sdpText = """
 v=0
 o=- 0 0 IN IP4 0.0.0.0
@@ -465,9 +516,8 @@ m=video $MULTICAST_PORT RTP/AVP $RTP_PAYLOAD_TYPE
 c=IN IP4 $MULTICAST_IP/16
 b=AS:12000
 a=framerate:30
-a=rtpmap:$RTP_PAYLOAD_TYPE H264/90000
-a=fmtp:$RTP_PAYLOAD_TYPE packetization-mode=1
-a=recvonly
+a=rtpmap:$RTP_PAYLOAD_TYPE $RTP_VIDEO_CODEC/90000
+${fmtpLine}a=recvonly
 """.trimIndent()
 
         val file = File(context.cacheDir, "multicast_high_debug.sdp")

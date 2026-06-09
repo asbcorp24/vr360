@@ -54,6 +54,13 @@ class MainActivity : AppCompatActivity(),
         private const val YAW_SENSITIVITY = 4.0f
         private const val PITCH_SENSITIVITY = 4.0f
         private const val ROLL_SENSITIVITY = 1.0f
+
+        /**
+         * В рабочей версии приложение должно стартовать именно в Cardboard-режиме.
+         * Команды сервера могут менять геометрию входного видео (360/180, mono/stereo),
+         * но выходной режим по умолчанию всегда оставляем CardboardStereo.
+         */
+        private const val FORCE_CARDBOARD_OUTPUT = true
     }
 
     private lateinit var binding: ActivityMainBinding
@@ -218,6 +225,10 @@ class MainActivity : AppCompatActivity(),
         Log.d(
             TAG,
             "Started with inputLayout=$inputLayout inputMode=$inputMode outputMode=$outputMode"
+        )
+        Log.d(
+            TAG,
+            "360 display mode is Mono + Equirect360 + CardboardStereo; 180 stereo is enabled only by explicit video_mode command"
         )
     }
 
@@ -423,10 +434,24 @@ class MainActivity : AppCompatActivity(),
             return
         }
 
+        /*
+         * Важно для твоей задачи:
+         * сервер может менять ТИП ВХОДНОГО ВИДЕО:
+         *   Mono / StereoHoriz / StereoVert
+         *   Equirect360 / Equirect180
+         * но приложение на смартфоне должно оставаться в Cardboard-режиме.
+         * Иначе после команды video_mode можно случайно уйти в MonoLeft/MonoRight.
+         */
+        val effectiveOutputMode = if (FORCE_CARDBOARD_OUTPUT) {
+            OutputMode.CardboardStereo
+        } else {
+            newOutputMode
+        }
+
         val changed =
             inputLayout != newInputLayout ||
                 inputMode != newInputMode ||
-                outputMode != newOutputMode
+                outputMode != effectiveOutputMode
 
         if (!changed) {
             Log.d(TAG, "applyVideoModeFromServer ignored: already $inputLayout $inputMode $outputMode")
@@ -435,9 +460,12 @@ class MainActivity : AppCompatActivity(),
 
         inputLayout = newInputLayout
         inputMode = newInputMode
-        outputMode = newOutputMode
+        outputMode = effectiveOutputMode
 
-        Log.d(TAG, "applyVideoModeFromServer RECEIVED: $inputLayout $inputMode $outputMode")
+        Log.d(
+            TAG,
+            "applyVideoModeFromServer RECEIVED: inputLayout=$inputLayout inputMode=$inputMode outputMode=$outputMode requestedOutput=$newOutputMode"
+        )
 
         glView.queueEvent {
             if (nativeApp != 0L) {
@@ -663,6 +691,10 @@ class MainActivity : AppCompatActivity(),
 
         glView.onResume()
         videoTexturePlayer.onResume()
+
+        // После возврата из паузы ещё раз закрепляем Cardboard-режим.
+        // Это защищает от ситуации, когда GL renderer пересоздался после pause/resume.
+        forceCurrentModeCardboardOnGlThread("onResume")
     }
 
     override fun onPause() {
@@ -710,6 +742,33 @@ class MainActivity : AppCompatActivity(),
 
         if (nativeApp != 0L) {
             NativeLibrary.nativeOnVideoSizeChanged(nativeApp, width, height)
+        }
+
+        // Первый кадр VLC иногда приходит уже после пересоздания GL-состояния.
+        // Поэтому на первом событии видео повторно отправляем текущий режим в native renderer.
+        forceCurrentModeCardboardOnGlThread("onVideoSizeChanged")
+    }
+
+    private fun forceCurrentModeCardboardOnGlThread(reason: String) {
+        if (!FORCE_CARDBOARD_OUTPUT) return
+        if (nativeApp == 0L || !::glView.isInitialized) return
+
+        outputMode = OutputMode.CardboardStereo
+
+        glView.queueEvent {
+            if (nativeApp != 0L) {
+                NativeLibrary.nativeSetOptions(
+                    nativeApp,
+                    inputLayout.ordinal,
+                    inputMode.ordinal,
+                    OutputMode.CardboardStereo.ordinal
+                )
+
+                Log.d(
+                    TAG,
+                    "FORCE CURRENT MODE CARDBOARD reason=$reason inputLayout=$inputLayout inputMode=$inputMode outputMode=${OutputMode.CardboardStereo}"
+                )
+            }
         }
     }
 
