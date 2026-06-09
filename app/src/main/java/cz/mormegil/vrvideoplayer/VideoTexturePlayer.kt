@@ -22,8 +22,8 @@ import java.net.SocketTimeoutException
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * VideoTexturePlayer — видеоплеер, который принимает MPEG-TS UDP multicast-поток через LibVLC
- * и выводит видео не на обычный View, а в SurfaceTexture.
+ * VideoTexturePlayer — видеоплеер, который принимает MPEG-TS UDP multicast-поток через LibVLC.
+ * Видео выводится в SurfaceTexture, а аудио воспроизводится штатным audio output LibVLC.
  *
  * SurfaceTexture привязана к OpenGL-текстуре texName.
  * Потом C++ Renderer использует эту текстуру для отображения 360°/VR-видео.
@@ -176,8 +176,9 @@ class VideoTexturePlayer(
             // Использовать IPv4.
             "--ipv4",
 
-            // Отключаем звук. Сейчас принимается только видео HIGH-поток.
-            "--no-audio",
+            // Звук НЕ отключаем. VLC сам возьмёт аудио из MPEG-TS multicast,
+            // если сервер отправляет его внутри этого же потока 239.0.0.1:5004.
+            "--aout=opensles",
 
             // Не показывать название видео поверх картинки.
             "--no-video-title-show",
@@ -284,8 +285,9 @@ class VideoTexturePlayer(
         media.addOption(":clock-jitter=0")
         media.addOption(":clock-synchro=0")
 
-        // Звук отключён.
-        media.addOption(":no-audio")
+        // Звук не отключаем: для MPEG-TS VLC должен сам найти audio track.
+        // ВАЖНО: если сервер запускается с -an или отправляет аудио отдельным портом,
+        // звука здесь не будет — аудио должно быть внутри этого же MPEG-TS потока.
 
         // Назначаем Media плееру.
         player.media = media
