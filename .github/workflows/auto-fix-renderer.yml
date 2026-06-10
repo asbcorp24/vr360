@@ -1,0 +1,141 @@
+name: Auto fix renderer once
+
+on:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: write
+
+jobs:
+  fix-renderer:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Apply renderer fixes
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('app/src/main/cpp/Renderer.cpp')
+          s = p.read_text(encoding='utf-8')
+
+          s = s.replace(
+              'static constexpr uint64_t kLookAtHoldMs = 1500;',
+              'static constexpr uint64_t kLookAtHoldMs = 30000;'
+          )
+
+          s = s.replace(
+              'view = BuildControlledViewMatrix() * viewMatrix;',
+              'view = BuildControlledViewMatrix();'
+          )
+
+          s = s.replace(
+              'view = cardboardEyeMatrices[eye] * BuildControlledViewMatrix() * viewMatrix;',
+              'view = cardboardEyeMatrices[eye] * BuildControlledViewMatrix();'
+          )
+
+          old_uv = '''            auto uFrac = float(j) / float(n_slices);
+            auto theta = -(minTheta + thetaRange * uFrac);
+            auto u = uFrac * uvWidth + uvLeft;
+'''
+          new_uv = '''            auto uFrac = float(j) / float(n_slices);
+            auto theta = -(minTheta + thetaRange * uFrac);
+
+            /*
+             * Убираем чёрный шов на 360° сфере.
+             *
+             * GL_TEXTURE_EXTERNAL_OES не умеет нормально повторять видео по U через GL_REPEAT,
+             * поэтому при GL_CLAMP_TO_EDGE на стыке u=0/u=1 иногда тянется чёрный край.
+             * Чуть уходим от самого края текстуры. Для mono это почти незаметно, а шов пропадает.
+             */
+            const float seamUvInset = 0.0015f;
+            const float safeUvLeft = uvLeft + seamUvInset * uvWidth;
+            const float safeUvRight = uvRight - seamUvInset * uvWidth;
+            const float safeUvWidth = safeUvRight - safeUvLeft;
+
+            auto u = uFrac * safeUvWidth + safeUvLeft;
+'''
+          if old_uv not in s:
+              raise RuntimeError('UV block not found')
+          s = s.replace(old_uv, new_uv, 1)
+
+          old_360 = '''            case InputVideoMode::EQUIRECT_360:
+                eyeMeshes[eye] = BuildUvSphereMesh(
+                        40,
+                        20,
+                        0,
+                        M_PI * 2.0f,
+                        uvLeft,
+                        uvTop,
+                        uvRight,
+                        uvBottom
+                );
+                break;
+'''
+          new_360 = '''            case InputVideoMode::EQUIRECT_360:
+                eyeMeshes[eye] = BuildUvSphereMesh(
+                        96,
+                        48,
+                        0,
+                        M_PI * 2.0f,
+                        uvLeft,
+                        uvTop,
+                        uvRight,
+                        uvBottom
+                );
+                break;
+'''
+          if old_360 not in s:
+              raise RuntimeError('EQUIRECT_360 block not found')
+          s = s.replace(old_360, new_360, 1)
+
+          old_pan = '''            case InputVideoMode::PANORAMA_360:
+                eyeMeshes[eye] = BuildCylindricalMesh(
+                        40,
+                        0,
+                        M_PI * 2.0f,
+                        uvLeft,
+                        uvTop,
+                        uvRight,
+                        uvBottom
+                );
+                break;
+'''
+          new_pan = '''            case InputVideoMode::PANORAMA_360:
+                eyeMeshes[eye] = BuildCylindricalMesh(
+                        96,
+                        0,
+                        M_PI * 2.0f,
+                        uvLeft,
+                        uvTop,
+                        uvRight,
+                        uvBottom
+                );
+                break;
+'''
+          if old_pan not in s:
+              raise RuntimeError('PANORAMA_360 block not found')
+          s = s.replace(old_pan, new_pan, 1)
+
+          p.write_text(s, encoding='utf-8')
+
+          # workflow одноразовый: удаляем себя из следующего коммита
+          Path('.github/workflows/auto-fix-renderer.yml').unlink(missing_ok=True)
+          PY
+
+      - name: Commit fixes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/cpp/Renderer.cpp .github/workflows/auto-fix-renderer.yml
+          if git diff --cached --quiet; then
+            echo "No changes"
+            exit 0
+          fi
+          git commit -m "Fix 360 seam and hold WS look direction"
+          git push
