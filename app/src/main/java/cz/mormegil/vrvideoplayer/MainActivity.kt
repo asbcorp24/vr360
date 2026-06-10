@@ -10,6 +10,7 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.os.Build
 import android.text.Html
+import android.text.InputType
 import android.text.Spanned
 import android.text.Layout
 import android.text.StaticLayout
@@ -29,6 +30,9 @@ import android.view.MenuItem
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
+import android.widget.EditText
+import android.widget.FrameLayout
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.PopupMenu
 import androidx.core.view.MenuCompat
@@ -36,6 +40,8 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import cz.mormegil.vrvideoplayer.databinding.ActivityMainBinding
+import java.net.InetSocketAddress
+import java.net.Socket
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 
@@ -45,6 +51,10 @@ class MainActivity : AppCompatActivity(),
 
     companion object {
         private const val TAG = "VRVideoPlayer"
+
+        private const val PREFS_NAME = "vr360_settings"
+        private const val KEY_CONTROL_SERVER_IP = "control_server_ip"
+        private const val DEFAULT_CONTROL_SERVER_IP = "192.168.1.104"
 
         /*
          * Чувствительность Android SensorManager.
@@ -72,10 +82,13 @@ class MainActivity : AppCompatActivity(),
     private var teacherControlClient: TeacherControlClient? = null
 
     /*
-     * IP компьютера/сервера.
-     * 127.0.0.1 на телефоне означает сам телефон, поэтому сюда нужен LAN IP сервера.
+     * IP компьютера/сервера управления.
+     * 127.0.0.1 на телефоне означает сам телефон, поэтому сюда нужен LAN IP компьютера.
+     * Значение сохраняется в SharedPreferences и может быть изменено через диалог,
+     * если сервер управления недоступен.
      */
-    private val serverIp = "192.168.1.104"
+    private var serverIp = DEFAULT_CONTROL_SERVER_IP
+    private var serverIpDialogShown = false
 
     /*
      * VR WebSocket на сервере:
@@ -111,6 +124,7 @@ class MainActivity : AppCompatActivity(),
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
 
         acquireMulticastLock()
+        serverIp = loadSavedControlServerIp()
 
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
@@ -184,8 +198,101 @@ class MainActivity : AppCompatActivity(),
          */
         forceStart360CardboardOnGlThread()
 
+        startTeacherControlWithReachabilityCheck()
+
+        enterImmersiveMode()
+
+        val layout = window.attributes
+        layout.screenBrightness = 1f
+        window.attributes = layout
+
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        volumeControlStream = AudioManager.STREAM_MUSIC
+
+        Log.d(
+            TAG,
+            "Started with inputLayout=$inputLayout inputMode=$inputMode outputMode=$outputMode"
+        )
+        Log.d(
+            TAG,
+            "360 display mode is Mono + Equirect360 + CardboardStereo; 180 stereo is enabled only by explicit video_mode command"
+        )
+    }
+
+    private fun loadSavedControlServerIp(): String {
+        val saved = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getString(KEY_CONTROL_SERVER_IP, DEFAULT_CONTROL_SERVER_IP)
+            ?.trim()
+            .orEmpty()
+
+        return saved.ifBlank { DEFAULT_CONTROL_SERVER_IP }
+    }
+
+    private fun saveControlServerIp(ip: String) {
+        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_CONTROL_SERVER_IP, ip)
+            .apply()
+    }
+
+    private fun normalizeControlServerIp(raw: String): String {
+        var value = raw.trim()
+        value = value.removePrefix("ws://")
+        value = value.removePrefix("wss://")
+        value = value.removePrefix("http://")
+        value = value.removePrefix("https://")
+        value = value.substringBefore("/")
+        value = value.substringBefore(":")
+        return value.trim()
+    }
+
+    private fun buildTeacherControlWsUrl(): String {
+        return "ws://$serverIp:$vrWsPort/vr-view-ws"
+    }
+
+    private fun startTeacherControlWithReachabilityCheck() {
+        val ipToCheck = serverIp
+        val portToCheck = vrWsPort
+
+        Thread {
+            var socket: Socket? = null
+            try {
+                Log.d(TAG, "Checking control server $ipToCheck:$portToCheck")
+                socket = Socket()
+                socket.connect(InetSocketAddress(ipToCheck, portToCheck), 2500)
+                Log.d(TAG, "Control server reachable: $ipToCheck:$portToCheck")
+
+                runOnUiThread {
+                    connectTeacherControlClient()
+                }
+            } catch (e: Throwable) {
+                Log.e(TAG, "Control server is not reachable: $ipToCheck:$portToCheck", e)
+
+                runOnUiThread {
+                    showControlServerIpDialog(
+                        "Не удалось подключиться к компьютеру управления:\n$ipToCheck:$portToCheck"
+                    )
+                }
+            } finally {
+                try {
+                    socket?.close()
+                } catch (_: Throwable) {
+                }
+            }
+        }.apply {
+            name = "vr-control-server-check"
+            start()
+        }
+    }
+
+    private fun connectTeacherControlClient() {
+        val wsUrl = buildTeacherControlWsUrl()
+
+        Log.d(TAG, "Connecting TeacherControlClient to $wsUrl")
+
+        teacherControlClient?.stop()
         teacherControlClient = TeacherControlClient(
-            wsUrl = "ws://$serverIp:$vrWsPort/vr-view-ws",
+            wsUrl = wsUrl,
             onLookAt = { yaw: Float, pitch: Float, radius: Float, duration: Int ->
                 lookAtFromServer(
                     yaw = yaw,
@@ -212,24 +319,58 @@ class MainActivity : AppCompatActivity(),
         )
 
         teacherControlClient?.start()
+    }
 
-        enterImmersiveMode()
+    private fun showControlServerIpDialog(message: String) {
+        if (isFinishing) return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1 && isDestroyed) return
+        if (serverIpDialogShown) return
 
-        val layout = window.attributes
-        layout.screenBrightness = 1f
-        window.attributes = layout
+        serverIpDialogShown = true
 
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        volumeControlStream = AudioManager.STREAM_MUSIC
+        val editText = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
+            hint = "192.168.1.104"
+            setSingleLine(true)
+            setText(serverIp)
+            selectAll()
+        }
 
-        Log.d(
-            TAG,
-            "Started with inputLayout=$inputLayout inputMode=$inputMode outputMode=$outputMode"
-        )
-        Log.d(
-            TAG,
-            "360 display mode is Mono + Equirect360 + CardboardStereo; 180 stereo is enabled only by explicit video_mode command"
-        )
+        val container = FrameLayout(this).apply {
+            val padding = (24 * resources.displayMetrics.density).toInt()
+            setPadding(padding, 8, padding, 0)
+            addView(editText)
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("Адрес компьютера управления")
+            .setMessage(
+                "$message\n\n" +
+                    "Введите IP компьютера, где запущен сервер 360 управления. " +
+                    "Например: 192.168.1.104"
+            )
+            .setView(container)
+            .setPositiveButton("Сохранить") { _, _ ->
+                val newIp = normalizeControlServerIp(editText.text?.toString().orEmpty())
+                serverIpDialogShown = false
+
+                if (newIp.isBlank()) {
+                    showControlServerIpDialog("IP адрес пустой. Введите адрес компьютера управления.")
+                    return@setPositiveButton
+                }
+
+                serverIp = newIp
+                saveControlServerIp(newIp)
+                Log.d(TAG, "Saved control server IP: $serverIp")
+                startTeacherControlWithReachabilityCheck()
+            }
+            .setNegativeButton("Отмена") { _, _ ->
+                serverIpDialogShown = false
+            }
+            .setOnDismissListener {
+                serverIpDialogShown = false
+            }
+            .show()
     }
 
     private fun forceStart360CardboardDirect() {
