@@ -53,9 +53,11 @@ class TeacherControlClient(
         outputMode: OutputMode
     ) -> Unit,
     private val onTextMark: (mark: ServerTextMark) -> Unit,
-    private val onTextMarkClear: () -> Unit
+    private val onTextMarkClear: () -> Unit,
+    private val onConnectionUnavailable: (message: String) -> Unit
 ) {
     private val tag = "TeacherControlClient"
+    private var currentInputMode: InputMode = InputMode.Equirect360
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -108,6 +110,12 @@ class TeacherControlClient(
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 Log.e(tag, "WebSocket failure: ${t.message}", t)
+                val failureDetails = buildFailureDetails(t, response)
+                mainHandler.post {
+                    onConnectionUnavailable(
+                        "Не удалось подключиться к адресу управления:\n$wsUrl\n\n$failureDetails"
+                    )
+                }
                 reconnectLater()
             }
 
@@ -124,6 +132,31 @@ class TeacherControlClient(
         mainHandler.postDelayed({
             if (!stopped) connect()
         }, 2000)
+    }
+
+    private fun buildFailureDetails(t: Throwable, response: Response?): String {
+        val parts = mutableListOf<String>()
+
+        val throwableMessage = t.message?.trim().orEmpty()
+        if (throwableMessage.isNotEmpty()) {
+            parts += "Причина: $throwableMessage"
+        }
+
+        if (response != null) {
+            parts += "HTTP: ${response.code} ${response.message}".trim()
+
+            val upgrade = response.header("Upgrade")
+            val connection = response.header("Connection")
+            if (!upgrade.isNullOrBlank() || !connection.isNullOrBlank()) {
+                parts += "Handshake headers: Upgrade=${upgrade ?: "-"}, Connection=${connection ?: "-"}"
+            }
+        }
+
+        if (parts.isEmpty()) {
+            parts += "Причина не указана"
+        }
+
+        return parts.joinToString("\n")
     }
 
     private fun handleMessage(text: String) {
@@ -218,6 +251,8 @@ class TeacherControlClient(
             "Parsed video mode inputLayout=$parsedInputLayout inputMode=$parsedInputMode outputMode=$parsedOutputMode"
         )
 
+        currentInputMode = parsedInputMode
+
         mainHandler.post {
             onVideoMode(parsedInputLayout, parsedInputMode, parsedOutputMode)
         }
@@ -251,14 +286,43 @@ class TeacherControlClient(
         val all = allVideoModeTokens(videoMode, projection, inputModeRaw)
 
         return when {
-            // 180 stereo / VR180 / equirectangular 180
+            value in setOf("180_stereo", "stereo_180", "180_sbs", "sbs_180") ->
+                InputMode.Stereo180
+
+            all.contains("180_stereo") || all.contains("stereo_180") ->
+                InputMode.Stereo180
+
+            value in setOf("180_stereo_16x9", "stereo_180_16x9", "180_16x9_stereo") ->
+                InputMode.Stereo180_16x9
+
+            all.contains("180_stereo_16x9") || all.contains("stereo_180_16x9") ->
+                InputMode.Stereo180_16x9
+
+            value in setOf("130_stereo", "stereo_130", "130_sbs", "sbs_130") ->
+                InputMode.Stereo130
+
+            all.contains("130_stereo") || all.contains("stereo_130") ->
+                InputMode.Stereo130
+
+            // Явный equirect 180.
             value in setOf(
-                "180", "180_mono", "180_stereo", "stereo_180", "vr180",
                 "equirect180", "equirect_180", "equirectangular180", "equirectangular_180",
+                "180_mono",
                 "equirect_180_stereo", "stereo_equirect_180"
             ) -> InputMode.Equirect180
 
-            all.contains("180") || all.contains("vr180") -> InputMode.Equirect180
+            all.contains("equirect_180") || all.contains("equirectangular_180") -> InputMode.Equirect180
+
+            // VR180 / dual fisheye: два "рыбьих глаза" рядом.
+            value in setOf(
+                "180", "vr180",
+                "fisheye", "fisheye180", "fisheye_180",
+                "dual_fisheye", "dual_fisheye180", "dual_fisheye_180"
+            ) -> InputMode.DualFisheye180
+
+            all.contains("vr180") ||
+                all.contains("fisheye") ||
+                all.contains("dual_fisheye") -> InputMode.DualFisheye180
 
             value in setOf(
                 "360", "360_mono", "360_stereo", "stereo_360", "vr360",
@@ -321,18 +385,28 @@ class TeacherControlClient(
             value in setOf(
                 "stereo", "stereo_horiz", "stereo_horizontal", "horizontal_stereo",
                 "side_by_side", "sidebyside", "side_by_side_full", "sbs", "lr", "left_right",
-                "180_stereo", "stereo_180", "180_sbs", "sbs_180", "vr180"
+                "180_stereo_16x9", "stereo_180_16x9", "180_16x9_stereo",
+                "130_stereo", "stereo_130", "130_sbs", "sbs_130",
+                "180", "180_stereo", "stereo_180", "180_sbs", "sbs_180", "vr180",
+                "fisheye", "fisheye180", "fisheye_180", "dual_fisheye", "dual_fisheye_180"
             ) -> InputLayout.StereoHoriz
+
+            all.contains("180_stereo_16x9") ||
+                all.contains("stereo_180_16x9") ||
+                all.contains("130_stereo") ||
+                all.contains("stereo_130") -> InputLayout.StereoHoriz
 
             all.contains("vr180") ||
                 all.contains("180_stereo") ||
                 all.contains("stereo_180") ||
+                all.contains("fisheye") ||
+                all.contains("dual_fisheye") ||
                 all.contains("side_by_side") ||
                 all.contains("sidebyside") ||
                 all.endsWith("_sbs") ||
                 all.contains("_sbs_") -> InputLayout.StereoHoriz
 
-            value in setOf("180_mono", "180") -> InputLayout.Mono
+            value in setOf("180_mono") -> InputLayout.Mono
 
             else -> {
                 Log.w(tag, "Unknown layout='$value' all='$all', fallback Mono")
@@ -366,12 +440,13 @@ class TeacherControlClient(
             return
         }
 
+        val hasAngles = root.has("yaw") && root.has("pitch")
         val mark = ServerTextMark(
             id = root.optString("id", "text_${System.currentTimeMillis()}"),
             text = text,
-            x = root.optionalFloat("x"),
-            y = root.optionalFloat("y"),
-            z = root.optionalFloat("z"),
+            x = if (hasAngles) null else root.optionalFloat("x"),
+            y = if (hasAngles) null else root.optionalFloat("y"),
+            z = if (hasAngles) null else root.optionalFloat("z"),
             yaw = root.optionalFloat("yaw"),
             pitch = root.optionalFloat("pitch"),
             width = root.optInt("width", 420).coerceIn(160, 1024),
@@ -385,8 +460,10 @@ class TeacherControlClient(
 
     private fun cleanText(value: String): String {
         return value
-            .replace(Regex("<br\\s*/?>", RegexOption.IGNORE_CASE), "\n")
-            .replace(Regex("<[^>]*>"), "")
+            .replace(Regex("(?is)<\\s*(script|style)[^>]*>.*?<\\s*/\\s*\\1\\s*>"), "")
+            .replace(Regex("(?i)<\\s*br\\s*/?\\s*>"), "<br/>")
+            .replace(Regex("(?i)</\\s*p\\s*>"), "<br/><br/>")
+            .replace(Regex("(?i)<\\s*p[^>]*>"), "")
             .replace("&nbsp;", " ")
             .replace("&lt;", "<")
             .replace("&gt;", ">")
@@ -472,11 +549,12 @@ class TeacherControlClient(
             val vectorRadius = sqrt(x * x + y * y + z * z)
             val safeRadius = if (vectorRadius > 0.001) vectorRadius else 1.0
 
-            var yaw = Math.toDegrees(atan2(-x, -z)).toFloat()
+            // Важно: повторяем legacy-конверсию сервера/direct_360_renderer.
+            var yaw = Math.toDegrees(atan2(x, z)).toFloat()
             if (yaw < 0f) yaw += 360f
 
             val pitch = Math.toDegrees(
-                asin((-y / safeRadius).coerceIn(-1.0, 1.0))
+                asin((y / safeRadius).coerceIn(-1.0, 1.0))
             ).toFloat()
 
             val radius = json.optDouble(
@@ -514,12 +592,13 @@ class TeacherControlClient(
 
             val textValue = params["text"] ?: params["message"]
             if (!textValue.isNullOrBlank()) {
+                val hasAngles = params["yaw"]?.toFloatOrNull() != null && params["pitch"]?.toFloatOrNull() != null
                 val mark = ServerTextMark(
                     id = params["id"] ?: "text_${System.currentTimeMillis()}",
                     text = cleanText(textValue),
-                    x = params["x"]?.toFloatOrNull(),
-                    y = params["y"]?.toFloatOrNull(),
-                    z = params["z"]?.toFloatOrNull(),
+                    x = if (hasAngles) null else params["x"]?.toFloatOrNull(),
+                    y = if (hasAngles) null else params["y"]?.toFloatOrNull(),
+                    z = if (hasAngles) null else params["z"]?.toFloatOrNull(),
                     yaw = params["yaw"]?.toFloatOrNull(),
                     pitch = params["pitch"]?.toFloatOrNull(),
                     width = params["width"]?.toIntOrNull() ?: 420,

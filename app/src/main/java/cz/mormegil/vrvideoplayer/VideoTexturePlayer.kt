@@ -5,6 +5,8 @@ import android.graphics.SurfaceTexture
 import android.graphics.SurfaceTexture.OnFrameAvailableListener
 import android.media.MediaPlayer.OnVideoSizeChangedListener
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.view.Surface
 import org.videolan.libvlc.LibVLC
@@ -17,7 +19,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  *
  * Раньше Android сам слушал multicast udp://@239.0.0.1:5004.
  * Теперь multicast принимает роутер, а телефон получает обычный HTTP unicast:
- * http://192.168.5.1:4022/udp/239.0.0.1:5004
+ * http://192.168.10.1:7088/udp/239.0.0.1:5004
  *
  * Видео выводится в SurfaceTexture, а аудио воспроизводится штатным audio output LibVLC.
  * SurfaceTexture привязана к OpenGL-текстуре texName.
@@ -42,9 +44,9 @@ class VideoTexturePlayer(
          *   udp://239.0.0.1:5004
          *
          * Android получает HTTP:
-         *   http://192.168.5.1:4022/udp/239.0.0.1:5004
+         *   http://192.168.10.1:7088/udp/239.0.0.1:5004
          */
-        private const val UDPXY_HTTP_URL = "http://192.168.5.1:4022/udp/239.0.0.1:5004"
+        private const val UDPXY_HTTP_URL = "http://192.168.10.1:7088/udp/239.0.0.1:5004"
 
         /**
          * Размер буфера SurfaceTexture.
@@ -79,6 +81,8 @@ class VideoTexturePlayer(
      * который делает surfaceTexture.updateTexImage().
      */
     private val frameAvailable = AtomicBoolean(false)
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var reconnectRunnable: Runnable? = null
 
     /**
      * Текущая позиция видео.
@@ -86,6 +90,7 @@ class VideoTexturePlayer(
      * Для live-потока перемотки нет, поэтому всегда 0.
      */
     private var videoPosition: Float = 0.0f
+    private var streamSourceUrl: String = UDPXY_HTTP_URL
 
     /**
      * Флаг: плеер уже инициализирован.
@@ -108,7 +113,7 @@ class VideoTexturePlayer(
 
         // Через udpxy телефон НЕ принимает multicast напрямую.
         // MulticastLock и UDP probe больше не нужны.
-        Log.d(TAG, "Using udpxy HTTP stream, multicast lock/probe skipped")
+        Log.d(TAG, "Using HTTP stream source, multicast lock/probe skipped")
 
         initialized = true
 
@@ -202,8 +207,14 @@ class VideoTexturePlayer(
 
                 MediaPlayer.Event.Paused -> Log.d(TAG, "VLC Paused")
                 MediaPlayer.Event.Stopped -> Log.d(TAG, "VLC Stopped")
-                MediaPlayer.Event.EndReached -> Log.w(TAG, "VLC EndReached")
-                MediaPlayer.Event.EncounteredError -> Log.e(TAG, "VLC EncounteredError")
+                MediaPlayer.Event.EndReached -> {
+                    Log.w(TAG, "VLC EndReached")
+                    scheduleStreamReconnect("end reached")
+                }
+                MediaPlayer.Event.EncounteredError -> {
+                    Log.e(TAG, "VLC EncounteredError")
+                    scheduleStreamReconnect("decoder/stream error")
+                }
 
                 else -> Log.d(TAG, "VLC event=${event.type}")
             }
@@ -229,34 +240,7 @@ class VideoTexturePlayer(
          * А Android получает обычный HTTP:
          *   http://192.168.5.1:4022/udp/239.0.0.1:5004
          */
-        val mediaPath = UDPXY_HTTP_URL
-
-        Log.d(TAG, "Opening MPEG-TS HTTP udpxy stream: $mediaPath")
-
-        val media = Media(vlc, Uri.parse(mediaPath))
-
-        // Внутри HTTP всё равно MPEG-TS, поэтому явно указываем TS demux.
-        media.addOption(":demux=ts")
-
-        // Дублируем cache-настройки на уровне Media.
-        media.addOption(":network-caching=300")
-        media.addOption(":live-caching=300")
-        media.addOption(":clock-jitter=0")
-        media.addOption(":clock-synchro=0")
-
-        // Звук не отключаем: для MPEG-TS VLC должен сам найти audio track.
-        // ВАЖНО: если сервер запускается с -an или отправляет аудио отдельным портом,
-        // звука здесь не будет — аудио должно быть внутри этого же MPEG-TS потока.
-
-        // Назначаем Media плееру.
-        player.media = media
-
-        // Media можно release после назначения.
-        media.release()
-
-        // Запускаем воспроизведение.
-        val result = player.play()
-        Log.d(TAG, "VLC play() result=$result")
+        openStream(player, vlc)
     }
 
     /**
@@ -327,6 +311,7 @@ class VideoTexturePlayer(
     fun onPause() {
         try {
             Log.d(TAG, "onPause")
+            cancelPendingReconnect()
             vlcPlayer?.stop()
         } catch (e: Throwable) {
             Log.e(TAG, "onPause error", e)
@@ -342,6 +327,7 @@ class VideoTexturePlayer(
         try {
             Log.d(TAG, "onResume initialized=$initialized")
             if (initialized) {
+                cancelPendingReconnect()
                 vlcPlayer?.play()
             }
         } catch (e: Throwable) {
@@ -357,6 +343,21 @@ class VideoTexturePlayer(
         cleanup()
     }
 
+    fun setStreamSourceUrl(url: String) {
+        val normalized = normalizeHttpStreamUrl(url)
+        if (normalized == streamSourceUrl) {
+            return
+        }
+
+        streamSourceUrl = normalized
+        Log.d(TAG, "Updated HTTP stream source: $streamSourceUrl")
+
+        if (initialized) {
+            cancelPendingReconnect()
+            reconnectStream("stream source changed")
+        }
+    }
+
     /**
      * Освободить все ресурсы.
      *
@@ -369,6 +370,8 @@ class VideoTexturePlayer(
      * - release SurfaceTexture.
      */
     private fun cleanup() {
+        cancelPendingReconnect()
+
         try {
             vlcPlayer?.setEventListener(null)
             vlcPlayer?.stop()
@@ -401,5 +404,86 @@ class VideoTexturePlayer(
         }
 
         surfaceTexture = null
+    }
+
+    private fun openStream(player: MediaPlayer, vlc: LibVLC) {
+        val mediaPath = streamSourceUrl
+
+        Log.d(TAG, "Opening HTTP MPEG-TS stream: $mediaPath")
+
+        val media = Media(vlc, Uri.parse(mediaPath))
+
+        // Внутри HTTP всё равно MPEG-TS, поэтому явно указываем TS demux.
+        media.addOption(":demux=ts")
+
+        // Дублируем cache-настройки на уровне Media.
+        media.addOption(":network-caching=300")
+        media.addOption(":live-caching=300")
+        media.addOption(":clock-jitter=0")
+        media.addOption(":clock-synchro=0")
+
+        // Звук не отключаем: для MPEG-TS VLC должен сам найти audio track.
+        // ВАЖНО: если сервер запускается с -an или отправляет аудио отдельным портом,
+        // звука здесь не будет — аудио должно быть внутри этого же MPEG-TS потока.
+        player.media = media
+        media.release()
+
+        val result = player.play()
+        Log.d(TAG, "VLC play() result=$result")
+    }
+
+    private fun normalizeHttpStreamUrl(raw: String): String {
+        val value = raw.trim()
+        if (value.isBlank()) {
+            return UDPXY_HTTP_URL
+        }
+
+        return if (
+            value.startsWith("http://", ignoreCase = true) ||
+            value.startsWith("https://", ignoreCase = true)
+        ) {
+            value
+        } else {
+            "http://$value"
+        }
+    }
+
+    private fun scheduleStreamReconnect(reason: String) {
+        if (!initialized) return
+        if (reconnectRunnable != null) return
+
+        reconnectRunnable = Runnable {
+            reconnectRunnable = null
+            reconnectStream(reason)
+        }
+
+        Log.w(TAG, "Scheduling VLC reconnect: $reason")
+        mainHandler.postDelayed(reconnectRunnable!!, 1200)
+    }
+
+    private fun reconnectStream(reason: String) {
+        if (!initialized) return
+
+        val player = vlcPlayer ?: return
+        val vlc = libVlc ?: return
+
+        try {
+            Log.w(TAG, "Reconnecting VLC stream after $reason")
+            player.stop()
+        } catch (e: Throwable) {
+            Log.e(TAG, "VLC stop before reconnect failed", e)
+        }
+
+        try {
+            openStream(player, vlc)
+        } catch (e: Throwable) {
+            Log.e(TAG, "VLC reconnect failed", e)
+            scheduleStreamReconnect("retry after reconnect failure")
+        }
+    }
+
+    private fun cancelPendingReconnect() {
+        reconnectRunnable?.let { mainHandler.removeCallbacks(it) }
+        reconnectRunnable = null
     }
 }

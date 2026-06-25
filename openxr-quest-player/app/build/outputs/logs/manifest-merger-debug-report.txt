@@ -1,0 +1,257 @@
+-- Merging decision tree log ---
+manifest
+ADDED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:2:1-57:12
+INJECTED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:2:1-57:12
+INJECTED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:2:1-57:12
+INJECTED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:2:1-57:12
+MERGED from [com.squareup.okhttp3:okhttp-android:5.3.2] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\61216022bfcef3f1db2aae7f42485e4b\transformed\okhttp-release\AndroidManifest.xml:2:1-22:12
+MERGED from [org.videolan.android:libvlc-all:3.7.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\ee60a6e5ce2b393e9d3674399db8ad0c\transformed\libvlc-all-3.7.0\AndroidManifest.xml:2:1-9:12
+MERGED from [androidx.startup:startup-runtime:1.2.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\249ace4ce68952b9a02f3bfac601495e\transformed\startup-runtime-1.2.0\AndroidManifest.xml:17:1-31:12
+MERGED from [androidx.legacy:legacy-support-v4:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\84b66032b7b50c3560b6fe15b1f8dfb4\transformed\legacy-support-v4-1.0.0\AndroidManifest.xml:17:1-22:12
+MERGED from [androidx.media:media:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\8bce3c7b69ce0aeb78d896c80cda0db3\transformed\media-1.0.0\AndroidManifest.xml:17:1-22:12
+MERGED from [androidx.fragment:fragment:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\2cce981c518abe00f458324e2dae9ac1\transformed\fragment-1.0.0\AndroidManifest.xml:17:1-22:12
+MERGED from [androidx.legacy:legacy-support-core-ui:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\f16d78b461117fa4f8693b0ea58e8e8c\transformed\legacy-support-core-ui-1.0.0\AndroidManifest.xml:17:1-22:12
+MERGED from [androidx.legacy:legacy-support-core-utils:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\294af2fa02d74388fdfbfe36057003f0\transformed\legacy-support-core-utils-1.0.0\AndroidManifest.xml:17:1-22:12
+MERGED from [androidx.loader:loader:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\f81cd3d635f22a9f6ba956bbf2ef4c98\transformed\loader-1.0.0\AndroidManifest.xml:17:1-22:12
+MERGED from [androidx.viewpager:viewpager:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\08066ce1d3de29b66a82e0332069e396\transformed\viewpager-1.0.0\AndroidManifest.xml:17:1-22:12
+MERGED from [androidx.coordinatorlayout:coordinatorlayout:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\2a1311e59ac184b02a0398ee94eebfc5\transformed\coordinatorlayout-1.0.0\AndroidManifest.xml:17:1-22:12
+MERGED from [androidx.drawerlayout:drawerlayout:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\bae35009d48bf0016e38e65cc982c34d\transformed\drawerlayout-1.0.0\AndroidManifest.xml:17:1-22:12
+MERGED from [androidx.slidingpanelayout:slidingpanelayout:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\738fb1ad00a1f0059e4646ecf98c2cc3\transformed\slidingpanelayout-1.0.0\AndroidManifest.xml:17:1-22:12
+MERGED from [androidx.customview:customview:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\8fa3c216b0bec3aa1f435b1f6f3af9b1\transformed\customview-1.0.0\AndroidManifest.xml:17:1-22:12
+MERGED from [androidx.swiperefreshlayout:swiperefreshlayout:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\b9bde87e600370c815c67667c4a7e5c9\transformed\swiperefreshlayout-1.0.0\AndroidManifest.xml:17:1-22:12
+MERGED from [androidx.asynclayoutinflater:asynclayoutinflater:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\576c353e4b238c94b3af16afd257e9e2\transformed\asynclayoutinflater-1.0.0\AndroidManifest.xml:17:1-22:12
+MERGED from [androidx.core:core:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\a24df9d287e07b87d6aedbce33d6c527\transformed\core-1.0.0\AndroidManifest.xml:17:1-24:12
+MERGED from [androidx.tracing:tracing:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\3544cb7b08a14dc60970355e8a49f3e6\transformed\tracing-1.0.0\AndroidManifest.xml:17:1-24:12
+MERGED from [androidx.versionedparcelable:versionedparcelable:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\3d02d50ae2a2fdb3c76553beab40576c\transformed\versionedparcelable-1.0.0\AndroidManifest.xml:17:1-25:12
+MERGED from [androidx.lifecycle:lifecycle-runtime:2.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\ace308b6f42f9918a494ef61d5321a60\transformed\lifecycle-runtime-2.0.0\AndroidManifest.xml:17:1-22:12
+MERGED from [androidx.documentfile:documentfile:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\3cedc5bd16a3f61c9721fbe747798d60\transformed\documentfile-1.0.0\AndroidManifest.xml:17:1-22:12
+MERGED from [androidx.localbroadcastmanager:localbroadcastmanager:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\4773bb26dd4c29df78128056e2b55480\transformed\localbroadcastmanager-1.0.0\AndroidManifest.xml:17:1-22:12
+MERGED from [androidx.print:print:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\dee9d736a99348a5284115da5748b33a\transformed\print-1.0.0\AndroidManifest.xml:17:1-22:12
+MERGED from [androidx.interpolator:interpolator:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\d55b76e43e7cdff9a0ed994fe0ad4024\transformed\interpolator-1.0.0\AndroidManifest.xml:17:1-22:12
+MERGED from [androidx.cursoradapter:cursoradapter:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\961dc3eb8a559f4aadea90bda6a2f7ef\transformed\cursoradapter-1.0.0\AndroidManifest.xml:17:1-22:12
+MERGED from [androidx.lifecycle:lifecycle-viewmodel:2.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\8934116d7cb7aa385492bf9a51008b42\transformed\lifecycle-viewmodel-2.0.0\AndroidManifest.xml:17:1-22:12
+MERGED from [androidx.lifecycle:lifecycle-livedata:2.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\5f7453b86ff3a733fc4f91562e8b1bca\transformed\lifecycle-livedata-2.0.0\AndroidManifest.xml:17:1-22:12
+MERGED from [androidx.lifecycle:lifecycle-livedata-core:2.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\bdc1244e65225eedee86fd4ede91c86e\transformed\lifecycle-livedata-core-2.0.0\AndroidManifest.xml:17:1-22:12
+MERGED from [androidx.arch.core:core-runtime:2.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\6a2695b3a997904aa369428171727b36\transformed\core-runtime-2.0.0\AndroidManifest.xml:17:1-22:12
+MERGED from [org.khronos.openxr:openxr_loader_for_android:1.1.60] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\4334559831fc33d4a08abebb9e04154d\transformed\openxr_loader_for_android-1.1.60\AndroidManifest.xml:1:1-29:12
+	package
+		INJECTED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml
+	android:versionName
+		INJECTED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml
+	android:versionCode
+		INJECTED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml
+	xmlns:android
+		ADDED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:2:11-69
+uses-feature#0x00030002
+ADDED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:4:5-6:35
+	android:glEsVersion
+		ADDED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:5:9-41
+	android:required
+		ADDED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:6:9-32
+uses-feature#android.hardware.vr.headtracking
+ADDED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:7:5-10:31
+	android:version
+		ADDED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:10:9-28
+	android:required
+		ADDED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:9:9-33
+	android:name
+		ADDED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:8:9-56
+uses-permission#android.permission.INTERNET
+ADDED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:12:5-67
+MERGED from [com.squareup.okhttp3:okhttp-android:5.3.2] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\61216022bfcef3f1db2aae7f42485e4b\transformed\okhttp-release\AndroidManifest.xml:8:5-67
+MERGED from [com.squareup.okhttp3:okhttp-android:5.3.2] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\61216022bfcef3f1db2aae7f42485e4b\transformed\okhttp-release\AndroidManifest.xml:8:5-67
+	android:name
+		ADDED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:12:22-64
+uses-permission#android.permission.VIBRATE
+ADDED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:13:5-66
+	android:name
+		ADDED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:13:22-63
+uses-permission#android.permission.WAKE_LOCK
+ADDED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:14:5-68
+	android:name
+		ADDED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:14:22-65
+uses-permission#org.khronos.openxr.permission.OPENXR
+ADDED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:15:5-76
+MERGED from [org.khronos.openxr:openxr_loader_for_android:1.1.60] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\4334559831fc33d4a08abebb9e04154d\transformed\openxr_loader_for_android-1.1.60\AndroidManifest.xml:13:3-74
+MERGED from [org.khronos.openxr:openxr_loader_for_android:1.1.60] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\4334559831fc33d4a08abebb9e04154d\transformed\openxr_loader_for_android-1.1.60\AndroidManifest.xml:13:3-74
+	android:name
+		ADDED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:15:22-73
+uses-permission#org.khronos.openxr.permission.OPENXR_SYSTEM
+ADDED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:16:5-83
+MERGED from [org.khronos.openxr:openxr_loader_for_android:1.1.60] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\4334559831fc33d4a08abebb9e04154d\transformed\openxr_loader_for_android-1.1.60\AndroidManifest.xml:14:3-81
+MERGED from [org.khronos.openxr:openxr_loader_for_android:1.1.60] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\4334559831fc33d4a08abebb9e04154d\transformed\openxr_loader_for_android-1.1.60\AndroidManifest.xml:14:3-81
+	android:name
+		ADDED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:16:22-80
+queries
+ADDED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:18:5-26:15
+MERGED from [org.khronos.openxr:openxr_loader_for_android:1.1.60] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\4334559831fc33d4a08abebb9e04154d\transformed\openxr_loader_for_android-1.1.60\AndroidManifest.xml:16:3-27:13
+MERGED from [org.khronos.openxr:openxr_loader_for_android:1.1.60] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\4334559831fc33d4a08abebb9e04154d\transformed\openxr_loader_for_android-1.1.60\AndroidManifest.xml:16:3-27:13
+provider
+ADDED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:19:9-118
+MERGED from [org.khronos.openxr:openxr_loader_for_android:1.1.60] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\4334559831fc33d4a08abebb9e04154d\transformed\openxr_loader_for_android-1.1.60\AndroidManifest.xml:18:5-114
+MERGED from [org.khronos.openxr:openxr_loader_for_android:1.1.60] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\4334559831fc33d4a08abebb9e04154d\transformed\openxr_loader_for_android-1.1.60\AndroidManifest.xml:18:5-114
+	android:authorities
+		ADDED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:19:19-115
+intent#action:name:org.khronos.openxr.OpenXRRuntimeService
+ADDED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:20:9-22:18
+action#org.khronos.openxr.OpenXRRuntimeService
+ADDED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:21:13-78
+	android:name
+		ADDED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:21:21-75
+intent#action:name:org.khronos.openxr.OpenXRApiLayerService
+ADDED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:23:9-25:18
+action#org.khronos.openxr.OpenXRApiLayerService
+ADDED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:24:13-79
+	android:name
+		ADDED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:24:21-76
+application
+ADDED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:28:5-56:19
+INJECTED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:28:5-56:19
+MERGED from [com.squareup.okhttp3:okhttp-android:5.3.2] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\61216022bfcef3f1db2aae7f42485e4b\transformed\okhttp-release\AndroidManifest.xml:10:5-20:19
+MERGED from [com.squareup.okhttp3:okhttp-android:5.3.2] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\61216022bfcef3f1db2aae7f42485e4b\transformed\okhttp-release\AndroidManifest.xml:10:5-20:19
+MERGED from [androidx.startup:startup-runtime:1.2.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\249ace4ce68952b9a02f3bfac601495e\transformed\startup-runtime-1.2.0\AndroidManifest.xml:23:5-29:19
+MERGED from [androidx.startup:startup-runtime:1.2.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\249ace4ce68952b9a02f3bfac601495e\transformed\startup-runtime-1.2.0\AndroidManifest.xml:23:5-29:19
+MERGED from [androidx.core:core:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\a24df9d287e07b87d6aedbce33d6c527\transformed\core-1.0.0\AndroidManifest.xml:22:5-89
+MERGED from [androidx.core:core:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\a24df9d287e07b87d6aedbce33d6c527\transformed\core-1.0.0\AndroidManifest.xml:22:5-89
+MERGED from [androidx.versionedparcelable:versionedparcelable:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\3d02d50ae2a2fdb3c76553beab40576c\transformed\versionedparcelable-1.0.0\AndroidManifest.xml:22:5-23:19
+MERGED from [androidx.versionedparcelable:versionedparcelable:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\3d02d50ae2a2fdb3c76553beab40576c\transformed\versionedparcelable-1.0.0\AndroidManifest.xml:22:5-23:19
+	android:extractNativeLibs
+		INJECTED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml
+	android:appComponentFactory
+		ADDED from [androidx.core:core:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\a24df9d287e07b87d6aedbce33d6c527\transformed\core-1.0.0\AndroidManifest.xml:22:18-86
+	android:supportsRtl
+		ADDED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:35:9-36
+	android:label
+		ADDED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:32:9-41
+	android:hasCode
+		ADDED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:30:9-31
+	android:roundIcon
+		ADDED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:33:9-54
+	android:icon
+		ADDED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:31:9-43
+	android:allowBackup
+		ADDED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:29:9-36
+	android:theme
+		ADDED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:36:9-55
+	android:usesCleartextTraffic
+		ADDED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:34:9-44
+activity#cz.mormegil.openxrquestplayer.QuestPlayerActivity
+ADDED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:38:9-55:20
+	android:screenOrientation
+		ADDED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:44:13-50
+	android:launchMode
+		ADDED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:42:13-44
+	android:exported
+		ADDED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:41:13-36
+	android:resizeableActivity
+		ADDED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:43:13-47
+	android:configChanges
+		ADDED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:40:13-141
+	android:name
+		ADDED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:39:13-48
+meta-data#android.app.lib_name
+ADDED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:46:13-48:55
+	android:value
+		ADDED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:48:17-52
+	android:name
+		ADDED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:47:17-52
+intent-filter#action:name:android.intent.action.MAIN+category:name:android.intent.category.LAUNCHER+category:name:org.khronos.openxr.intent.category.IMMERSIVE_HMD
+ADDED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:50:13-54:29
+action#android.intent.action.MAIN
+ADDED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:51:17-69
+	android:name
+		ADDED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:51:25-66
+category#android.intent.category.LAUNCHER
+ADDED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:52:17-77
+	android:name
+		ADDED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:52:27-74
+category#org.khronos.openxr.intent.category.IMMERSIVE_HMD
+ADDED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:53:17-93
+	android:name
+		ADDED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:53:27-90
+uses-sdk
+INJECTED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml reason: use-sdk injection requested
+INJECTED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml
+INJECTED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml
+MERGED from [com.squareup.okhttp3:okhttp-android:5.3.2] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\61216022bfcef3f1db2aae7f42485e4b\transformed\okhttp-release\AndroidManifest.xml:6:5-44
+MERGED from [com.squareup.okhttp3:okhttp-android:5.3.2] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\61216022bfcef3f1db2aae7f42485e4b\transformed\okhttp-release\AndroidManifest.xml:6:5-44
+MERGED from [org.videolan.android:libvlc-all:3.7.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\ee60a6e5ce2b393e9d3674399db8ad0c\transformed\libvlc-all-3.7.0\AndroidManifest.xml:7:5-44
+MERGED from [org.videolan.android:libvlc-all:3.7.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\ee60a6e5ce2b393e9d3674399db8ad0c\transformed\libvlc-all-3.7.0\AndroidManifest.xml:7:5-44
+MERGED from [androidx.startup:startup-runtime:1.2.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\249ace4ce68952b9a02f3bfac601495e\transformed\startup-runtime-1.2.0\AndroidManifest.xml:21:5-44
+MERGED from [androidx.startup:startup-runtime:1.2.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\249ace4ce68952b9a02f3bfac601495e\transformed\startup-runtime-1.2.0\AndroidManifest.xml:21:5-44
+MERGED from [androidx.legacy:legacy-support-v4:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\84b66032b7b50c3560b6fe15b1f8dfb4\transformed\legacy-support-v4-1.0.0\AndroidManifest.xml:20:5-44
+MERGED from [androidx.legacy:legacy-support-v4:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\84b66032b7b50c3560b6fe15b1f8dfb4\transformed\legacy-support-v4-1.0.0\AndroidManifest.xml:20:5-44
+MERGED from [androidx.media:media:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\8bce3c7b69ce0aeb78d896c80cda0db3\transformed\media-1.0.0\AndroidManifest.xml:20:5-44
+MERGED from [androidx.media:media:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\8bce3c7b69ce0aeb78d896c80cda0db3\transformed\media-1.0.0\AndroidManifest.xml:20:5-44
+MERGED from [androidx.fragment:fragment:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\2cce981c518abe00f458324e2dae9ac1\transformed\fragment-1.0.0\AndroidManifest.xml:20:5-44
+MERGED from [androidx.fragment:fragment:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\2cce981c518abe00f458324e2dae9ac1\transformed\fragment-1.0.0\AndroidManifest.xml:20:5-44
+MERGED from [androidx.legacy:legacy-support-core-ui:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\f16d78b461117fa4f8693b0ea58e8e8c\transformed\legacy-support-core-ui-1.0.0\AndroidManifest.xml:20:5-44
+MERGED from [androidx.legacy:legacy-support-core-ui:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\f16d78b461117fa4f8693b0ea58e8e8c\transformed\legacy-support-core-ui-1.0.0\AndroidManifest.xml:20:5-44
+MERGED from [androidx.legacy:legacy-support-core-utils:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\294af2fa02d74388fdfbfe36057003f0\transformed\legacy-support-core-utils-1.0.0\AndroidManifest.xml:20:5-44
+MERGED from [androidx.legacy:legacy-support-core-utils:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\294af2fa02d74388fdfbfe36057003f0\transformed\legacy-support-core-utils-1.0.0\AndroidManifest.xml:20:5-44
+MERGED from [androidx.loader:loader:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\f81cd3d635f22a9f6ba956bbf2ef4c98\transformed\loader-1.0.0\AndroidManifest.xml:20:5-44
+MERGED from [androidx.loader:loader:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\f81cd3d635f22a9f6ba956bbf2ef4c98\transformed\loader-1.0.0\AndroidManifest.xml:20:5-44
+MERGED from [androidx.viewpager:viewpager:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\08066ce1d3de29b66a82e0332069e396\transformed\viewpager-1.0.0\AndroidManifest.xml:20:5-44
+MERGED from [androidx.viewpager:viewpager:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\08066ce1d3de29b66a82e0332069e396\transformed\viewpager-1.0.0\AndroidManifest.xml:20:5-44
+MERGED from [androidx.coordinatorlayout:coordinatorlayout:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\2a1311e59ac184b02a0398ee94eebfc5\transformed\coordinatorlayout-1.0.0\AndroidManifest.xml:20:5-44
+MERGED from [androidx.coordinatorlayout:coordinatorlayout:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\2a1311e59ac184b02a0398ee94eebfc5\transformed\coordinatorlayout-1.0.0\AndroidManifest.xml:20:5-44
+MERGED from [androidx.drawerlayout:drawerlayout:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\bae35009d48bf0016e38e65cc982c34d\transformed\drawerlayout-1.0.0\AndroidManifest.xml:20:5-44
+MERGED from [androidx.drawerlayout:drawerlayout:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\bae35009d48bf0016e38e65cc982c34d\transformed\drawerlayout-1.0.0\AndroidManifest.xml:20:5-44
+MERGED from [androidx.slidingpanelayout:slidingpanelayout:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\738fb1ad00a1f0059e4646ecf98c2cc3\transformed\slidingpanelayout-1.0.0\AndroidManifest.xml:20:5-44
+MERGED from [androidx.slidingpanelayout:slidingpanelayout:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\738fb1ad00a1f0059e4646ecf98c2cc3\transformed\slidingpanelayout-1.0.0\AndroidManifest.xml:20:5-44
+MERGED from [androidx.customview:customview:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\8fa3c216b0bec3aa1f435b1f6f3af9b1\transformed\customview-1.0.0\AndroidManifest.xml:20:5-44
+MERGED from [androidx.customview:customview:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\8fa3c216b0bec3aa1f435b1f6f3af9b1\transformed\customview-1.0.0\AndroidManifest.xml:20:5-44
+MERGED from [androidx.swiperefreshlayout:swiperefreshlayout:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\b9bde87e600370c815c67667c4a7e5c9\transformed\swiperefreshlayout-1.0.0\AndroidManifest.xml:20:5-44
+MERGED from [androidx.swiperefreshlayout:swiperefreshlayout:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\b9bde87e600370c815c67667c4a7e5c9\transformed\swiperefreshlayout-1.0.0\AndroidManifest.xml:20:5-44
+MERGED from [androidx.asynclayoutinflater:asynclayoutinflater:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\576c353e4b238c94b3af16afd257e9e2\transformed\asynclayoutinflater-1.0.0\AndroidManifest.xml:20:5-44
+MERGED from [androidx.asynclayoutinflater:asynclayoutinflater:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\576c353e4b238c94b3af16afd257e9e2\transformed\asynclayoutinflater-1.0.0\AndroidManifest.xml:20:5-44
+MERGED from [androidx.core:core:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\a24df9d287e07b87d6aedbce33d6c527\transformed\core-1.0.0\AndroidManifest.xml:20:5-44
+MERGED from [androidx.core:core:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\a24df9d287e07b87d6aedbce33d6c527\transformed\core-1.0.0\AndroidManifest.xml:20:5-44
+MERGED from [androidx.tracing:tracing:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\3544cb7b08a14dc60970355e8a49f3e6\transformed\tracing-1.0.0\AndroidManifest.xml:20:5-22:41
+MERGED from [androidx.tracing:tracing:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\3544cb7b08a14dc60970355e8a49f3e6\transformed\tracing-1.0.0\AndroidManifest.xml:20:5-22:41
+MERGED from [androidx.versionedparcelable:versionedparcelable:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\3d02d50ae2a2fdb3c76553beab40576c\transformed\versionedparcelable-1.0.0\AndroidManifest.xml:20:5-44
+MERGED from [androidx.versionedparcelable:versionedparcelable:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\3d02d50ae2a2fdb3c76553beab40576c\transformed\versionedparcelable-1.0.0\AndroidManifest.xml:20:5-44
+MERGED from [androidx.lifecycle:lifecycle-runtime:2.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\ace308b6f42f9918a494ef61d5321a60\transformed\lifecycle-runtime-2.0.0\AndroidManifest.xml:20:5-44
+MERGED from [androidx.lifecycle:lifecycle-runtime:2.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\ace308b6f42f9918a494ef61d5321a60\transformed\lifecycle-runtime-2.0.0\AndroidManifest.xml:20:5-44
+MERGED from [androidx.documentfile:documentfile:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\3cedc5bd16a3f61c9721fbe747798d60\transformed\documentfile-1.0.0\AndroidManifest.xml:20:5-44
+MERGED from [androidx.documentfile:documentfile:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\3cedc5bd16a3f61c9721fbe747798d60\transformed\documentfile-1.0.0\AndroidManifest.xml:20:5-44
+MERGED from [androidx.localbroadcastmanager:localbroadcastmanager:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\4773bb26dd4c29df78128056e2b55480\transformed\localbroadcastmanager-1.0.0\AndroidManifest.xml:20:5-44
+MERGED from [androidx.localbroadcastmanager:localbroadcastmanager:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\4773bb26dd4c29df78128056e2b55480\transformed\localbroadcastmanager-1.0.0\AndroidManifest.xml:20:5-44
+MERGED from [androidx.print:print:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\dee9d736a99348a5284115da5748b33a\transformed\print-1.0.0\AndroidManifest.xml:20:5-44
+MERGED from [androidx.print:print:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\dee9d736a99348a5284115da5748b33a\transformed\print-1.0.0\AndroidManifest.xml:20:5-44
+MERGED from [androidx.interpolator:interpolator:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\d55b76e43e7cdff9a0ed994fe0ad4024\transformed\interpolator-1.0.0\AndroidManifest.xml:20:5-44
+MERGED from [androidx.interpolator:interpolator:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\d55b76e43e7cdff9a0ed994fe0ad4024\transformed\interpolator-1.0.0\AndroidManifest.xml:20:5-44
+MERGED from [androidx.cursoradapter:cursoradapter:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\961dc3eb8a559f4aadea90bda6a2f7ef\transformed\cursoradapter-1.0.0\AndroidManifest.xml:20:5-44
+MERGED from [androidx.cursoradapter:cursoradapter:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\961dc3eb8a559f4aadea90bda6a2f7ef\transformed\cursoradapter-1.0.0\AndroidManifest.xml:20:5-44
+MERGED from [androidx.lifecycle:lifecycle-viewmodel:2.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\8934116d7cb7aa385492bf9a51008b42\transformed\lifecycle-viewmodel-2.0.0\AndroidManifest.xml:20:5-44
+MERGED from [androidx.lifecycle:lifecycle-viewmodel:2.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\8934116d7cb7aa385492bf9a51008b42\transformed\lifecycle-viewmodel-2.0.0\AndroidManifest.xml:20:5-44
+MERGED from [androidx.lifecycle:lifecycle-livedata:2.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\5f7453b86ff3a733fc4f91562e8b1bca\transformed\lifecycle-livedata-2.0.0\AndroidManifest.xml:20:5-44
+MERGED from [androidx.lifecycle:lifecycle-livedata:2.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\5f7453b86ff3a733fc4f91562e8b1bca\transformed\lifecycle-livedata-2.0.0\AndroidManifest.xml:20:5-44
+MERGED from [androidx.lifecycle:lifecycle-livedata-core:2.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\bdc1244e65225eedee86fd4ede91c86e\transformed\lifecycle-livedata-core-2.0.0\AndroidManifest.xml:20:5-44
+MERGED from [androidx.lifecycle:lifecycle-livedata-core:2.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\bdc1244e65225eedee86fd4ede91c86e\transformed\lifecycle-livedata-core-2.0.0\AndroidManifest.xml:20:5-44
+MERGED from [androidx.arch.core:core-runtime:2.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\6a2695b3a997904aa369428171727b36\transformed\core-runtime-2.0.0\AndroidManifest.xml:20:5-44
+MERGED from [androidx.arch.core:core-runtime:2.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\6a2695b3a997904aa369428171727b36\transformed\core-runtime-2.0.0\AndroidManifest.xml:20:5-44
+MERGED from [org.khronos.openxr:openxr_loader_for_android:1.1.60] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\4334559831fc33d4a08abebb9e04154d\transformed\openxr_loader_for_android-1.1.60\AndroidManifest.xml:11:3-72
+MERGED from [org.khronos.openxr:openxr_loader_for_android:1.1.60] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\4334559831fc33d4a08abebb9e04154d\transformed\openxr_loader_for_android-1.1.60\AndroidManifest.xml:11:3-72
+	android:targetSdkVersion
+		INJECTED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml
+	android:minSdkVersion
+		INJECTED from C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml
+provider#androidx.startup.InitializationProvider
+ADDED from [com.squareup.okhttp3:okhttp-android:5.3.2] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\61216022bfcef3f1db2aae7f42485e4b\transformed\okhttp-release\AndroidManifest.xml:11:9-19:20
+MERGED from [androidx.startup:startup-runtime:1.2.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\249ace4ce68952b9a02f3bfac601495e\transformed\startup-runtime-1.2.0\AndroidManifest.xml:24:9-28:34
+MERGED from [androidx.startup:startup-runtime:1.2.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\249ace4ce68952b9a02f3bfac601495e\transformed\startup-runtime-1.2.0\AndroidManifest.xml:24:9-28:34
+	tools:node
+		ADDED from [com.squareup.okhttp3:okhttp-android:5.3.2] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\61216022bfcef3f1db2aae7f42485e4b\transformed\okhttp-release\AndroidManifest.xml:15:13-31
+	android:authorities
+		ADDED from [com.squareup.okhttp3:okhttp-android:5.3.2] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\61216022bfcef3f1db2aae7f42485e4b\transformed\okhttp-release\AndroidManifest.xml:13:13-68
+	android:exported
+		ADDED from [com.squareup.okhttp3:okhttp-android:5.3.2] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\61216022bfcef3f1db2aae7f42485e4b\transformed\okhttp-release\AndroidManifest.xml:14:13-37
+	android:name
+		ADDED from [com.squareup.okhttp3:okhttp-android:5.3.2] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\61216022bfcef3f1db2aae7f42485e4b\transformed\okhttp-release\AndroidManifest.xml:12:13-67
+meta-data#okhttp3.internal.platform.PlatformInitializer
+ADDED from [com.squareup.okhttp3:okhttp-android:5.3.2] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\61216022bfcef3f1db2aae7f42485e4b\transformed\okhttp-release\AndroidManifest.xml:16:13-18:52
+	android:value
+		ADDED from [com.squareup.okhttp3:okhttp-android:5.3.2] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\61216022bfcef3f1db2aae7f42485e4b\transformed\okhttp-release\AndroidManifest.xml:18:17-49
+	android:name
+		ADDED from [com.squareup.okhttp3:okhttp-android:5.3.2] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\61216022bfcef3f1db2aae7f42485e4b\transformed\okhttp-release\AndroidManifest.xml:17:17-77

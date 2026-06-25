@@ -1,0 +1,13 @@
+cz.mormegil.openxrquestplayer.app-startup-runtime-1.2.0-0 C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\249ace4ce68952b9a02f3bfac601495e\transformed\startup-runtime-1.2.0\res
+cz.mormegil.openxrquestplayer.app-coordinatorlayout-1.0.0-1 C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\2a1311e59ac184b02a0398ee94eebfc5\transformed\coordinatorlayout-1.0.0\res
+cz.mormegil.openxrquestplayer.app-media-1.0.0-2 C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\8bce3c7b69ce0aeb78d896c80cda0db3\transformed\media-1.0.0\res
+cz.mormegil.openxrquestplayer.app-core-1.0.0-3 C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\a24df9d287e07b87d6aedbce33d6c527\transformed\core-1.0.0\res
+cz.mormegil.openxrquestplayer.app-libvlc-all-3.7.0-4 C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\ee60a6e5ce2b393e9d3674399db8ad0c\transformed\libvlc-all-3.7.0\res
+cz.mormegil.openxrquestplayer.app-pngs-5 C:\dev\vr360\openxr-quest-player\app\build\generated\res\pngs\debug
+cz.mormegil.openxrquestplayer.app-resValues-6 C:\dev\vr360\openxr-quest-player\app\build\generated\res\resValues\debug
+cz.mormegil.openxrquestplayer.app-updated_navigation_xml-7 C:\dev\vr360\openxr-quest-player\app\build\generated\updated_navigation_xml\debug
+cz.mormegil.openxrquestplayer.app-packageDebugResources-8 C:\dev\vr360\openxr-quest-player\app\build\intermediates\incremental\debug\packageDebugResources\merged.dir
+cz.mormegil.openxrquestplayer.app-packageDebugResources-9 C:\dev\vr360\openxr-quest-player\app\build\intermediates\incremental\debug\packageDebugResources\stripped.dir
+cz.mormegil.openxrquestplayer.app-debug-10 C:\dev\vr360\openxr-quest-player\app\build\intermediates\merged_res\debug\mergeDebugResources
+cz.mormegil.openxrquestplayer.app-debug-11 C:\dev\vr360\openxr-quest-player\app\src\debug\res
+cz.mormegil.openxrquestplayer.app-main-12 C:\dev\vr360\openxr-quest-player\app\src\main\res

@@ -40,6 +40,10 @@ enum class InputVideoMode {
     PYRAMID = 6,
     PANORAMA_180 = 7,
     PANORAMA_360 = 8,
+    STEREO_180 = 9,
+    DUAL_FISHEYE_180 = 10,
+    STEREO_180_16X9 = 11,
+    STEREO_130 = 12,
 };
 
 /**
@@ -197,6 +201,10 @@ private:
     bool lookAtAnimating = false;
     uint64_t lookAtStartMs = 0;
     uint64_t lookAtDurationMs = 0;
+    bool lookAtPoseFrozen = false;
+    glm::mat4 frozenViewMatrix = glm::mat4(1.0f);
+    float frozenYaw = 0.0f;
+    float frozenPitch = 0.0f;
 
     /*
  * Ручной поворот от Android SensorManager.
@@ -226,7 +234,11 @@ private:
 
     void RenderCardboardAlignLine();
 
+    void RenderLookAtCountdown(int remainingSeconds) const;
+
     void RenderTextMarks(const glm::mat4 &mvpMatrix);
+
+    uint64_t GetLookAtReleaseRemainingMs() const;
 
     void ExecuteButtonAction(const ButtonAction action, JNIEnv *env);
 

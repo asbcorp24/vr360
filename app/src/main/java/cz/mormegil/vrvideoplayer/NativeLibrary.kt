@@ -126,6 +126,18 @@ enum class InputMode {
     },
     Panorama360 {
         override fun menuItemId(): Int = R.id.input_mode_panorama_360
+    },
+    Stereo180 {
+        override fun menuItemId(): Int = R.id.input_mode_equirect_180
+    },
+    DualFisheye180 {
+        override fun menuItemId(): Int = R.id.input_mode_equirect_180
+    },
+    Stereo180_16x9 {
+        override fun menuItemId(): Int = R.id.input_mode_equirect_180
+    },
+    Stereo130 {
+        override fun menuItemId(): Int = R.id.input_mode_equirect_180
     };
 
     abstract fun menuItemId(): Int

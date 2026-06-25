@@ -1,0 +1,14 @@
+[
+    {
+        "merged": "cz.mormegil.openxrquestplayer.app-debug-9:/mipmap-anydpi-v26_ic_launcher.xml.flat",
+        "source": "cz.mormegil.openxrquestplayer.app-main-11:/mipmap-anydpi-v26/ic_launcher.xml"
+    },
+    {
+        "merged": "cz.mormegil.openxrquestplayer.app-debug-9:/drawable_ic_launcher_foreground.xml.flat",
+        "source": "cz.mormegil.openxrquestplayer.app-main-11:/drawable/ic_launcher_foreground.xml"
+    },
+    {
+        "merged": "cz.mormegil.openxrquestplayer.app-debug-9:/mipmap-anydpi-v26_ic_launcher_round.xml.flat",
+        "source": "cz.mormegil.openxrquestplayer.app-main-11:/mipmap-anydpi-v26/ic_launcher_round.xml"
+    }
+]

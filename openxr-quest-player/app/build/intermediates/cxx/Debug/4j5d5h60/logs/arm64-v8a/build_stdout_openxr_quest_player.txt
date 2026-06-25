@@ -1,0 +1,2 @@
+ninja: Entering directory `C:\dev\vr360\openxr-quest-player\app\.cxx\Debug\4j5d5h60\arm64-v8a'
+[1/1] Linking CXX shared library C:\dev\vr360\openxr-quest-player\app\build\intermediates\cxx\Debug\4j5d5h60\obj\arm64-v8a\libopenxr_quest_player.so

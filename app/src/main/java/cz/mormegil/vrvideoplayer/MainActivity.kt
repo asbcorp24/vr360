@@ -9,6 +9,8 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.text.Html
 import android.text.InputType
 import android.text.Spanned
@@ -31,7 +33,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.EditText
-import android.widget.FrameLayout
+import android.widget.LinearLayout
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.PopupMenu
@@ -40,6 +42,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import cz.mormegil.vrvideoplayer.databinding.ActivityMainBinding
+import java.net.URI
 import java.net.InetSocketAddress
 import java.net.Socket
 import javax.microedition.khronos.egl.EGLConfig
@@ -51,10 +54,13 @@ class MainActivity : AppCompatActivity(),
 
     companion object {
         private const val TAG = "VRVideoPlayer"
+        private const val CONTROL_SERVER_DIALOG_TIMEOUT_MS = 40_000L
 
         private const val PREFS_NAME = "vr360_settings"
-        private const val KEY_CONTROL_SERVER_IP = "control_server_ip"
-        private const val DEFAULT_CONTROL_SERVER_IP = "192.168.1.104"
+        private const val KEY_CONTROL_SERVER_ENDPOINT = "control_server_ip"
+        private const val KEY_VIDEO_STREAM_URL = "video_stream_url"
+        private const val DEFAULT_CONTROL_SERVER_ENDPOINT = "192.168.1.104"
+        private const val DEFAULT_VIDEO_STREAM_URL = "http://192.168.10.1:7088/udp/239.0.0.1:5004"
 
         /*
          * Чувствительность Android SensorManager.
@@ -87,14 +93,14 @@ class MainActivity : AppCompatActivity(),
      * Значение сохраняется в SharedPreferences и может быть изменено через диалог,
      * если сервер управления недоступен.
      */
-    private var serverIp = DEFAULT_CONTROL_SERVER_IP
+    private var controlServerEndpoint = DEFAULT_CONTROL_SERVER_ENDPOINT
+    private var videoStreamUrl = DEFAULT_VIDEO_STREAM_URL
     private var serverIpDialogShown = false
 
     /*
      * VR WebSocket на сервере:
      * ws://host:8071/vr-view-ws
      */
-    private val vrWsPort = 8071
 
     /*
      * Стартовый режим приложения.
@@ -124,7 +130,8 @@ class MainActivity : AppCompatActivity(),
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
 
         acquireMulticastLock()
-        serverIp = loadSavedControlServerIp()
+        controlServerEndpoint = loadSavedControlServerEndpoint()
+        videoStreamUrl = loadSavedVideoStreamUrl()
 
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
@@ -144,6 +151,7 @@ class MainActivity : AppCompatActivity(),
             context = this,
             videoSizeChangedListener = this
         )
+        videoTexturePlayer.setStreamSourceUrl(videoStreamUrl)
 
         controller = Controller(
             getSystemService(AudioManager::class.java),
@@ -219,54 +227,134 @@ class MainActivity : AppCompatActivity(),
         )
     }
 
-    private fun loadSavedControlServerIp(): String {
+    private data class ReachabilityTarget(
+        val host: String,
+        val port: Int
+    )
+
+    private fun loadSavedControlServerEndpoint(): String {
         val saved = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .getString(KEY_CONTROL_SERVER_IP, DEFAULT_CONTROL_SERVER_IP)
+            .getString(KEY_CONTROL_SERVER_ENDPOINT, DEFAULT_CONTROL_SERVER_ENDPOINT)
             ?.trim()
             .orEmpty()
 
-        return saved.ifBlank { DEFAULT_CONTROL_SERVER_IP }
+        return saved.ifBlank { DEFAULT_CONTROL_SERVER_ENDPOINT }
     }
 
-    private fun saveControlServerIp(ip: String) {
+    private fun saveControlServerEndpoint(endpoint: String) {
         getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
-            .putString(KEY_CONTROL_SERVER_IP, ip)
+            .putString(KEY_CONTROL_SERVER_ENDPOINT, endpoint)
             .apply()
     }
 
-    private fun normalizeControlServerIp(raw: String): String {
-        var value = raw.trim()
-        value = value.removePrefix("ws://")
-        value = value.removePrefix("wss://")
-        value = value.removePrefix("http://")
-        value = value.removePrefix("https://")
-        value = value.substringBefore("/")
-        value = value.substringBefore(":")
-        return value.trim()
+    private fun loadSavedVideoStreamUrl(): String {
+        val saved = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getString(KEY_VIDEO_STREAM_URL, DEFAULT_VIDEO_STREAM_URL)
+            ?.trim()
+            .orEmpty()
+
+        val normalized = normalizeVideoStreamUrl(saved).ifBlank { DEFAULT_VIDEO_STREAM_URL }
+        return if (normalized == "http://192.168.5.1:4022/udp/239.0.0.1:5004") {
+            DEFAULT_VIDEO_STREAM_URL
+        } else {
+            normalized
+        }
+    }
+
+    private fun saveVideoStreamUrl(url: String) {
+        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_VIDEO_STREAM_URL, url)
+            .apply()
+    }
+
+    private fun normalizeControlServerEndpoint(raw: String): String {
+        val value = raw.trim()
+        if (value.isBlank()) return ""
+
+        return if (
+            value.startsWith("ws://", ignoreCase = true) ||
+            value.startsWith("wss://", ignoreCase = true)
+        ) {
+            value
+        } else {
+            value.removePrefix("http://")
+                .removePrefix("https://")
+                .trim()
+        }
+    }
+
+    private fun normalizeVideoStreamUrl(raw: String): String {
+        val value = raw.trim()
+        if (value.isBlank()) return ""
+
+        return if (
+            value.startsWith("http://", ignoreCase = true) ||
+            value.startsWith("https://", ignoreCase = true)
+        ) {
+            value
+        } else {
+            "http://$value"
+        }
     }
 
     private fun buildTeacherControlWsUrl(): String {
-        return "ws://$serverIp:$vrWsPort/vr-view-ws"
+        val savedValue = normalizeControlServerEndpoint(controlServerEndpoint)
+        if (
+            savedValue.startsWith("ws://", ignoreCase = true) ||
+            savedValue.startsWith("wss://", ignoreCase = true)
+        ) {
+            return savedValue
+        }
+
+        val host = savedValue.substringBefore("/").trim()
+        return "ws://$host:8071/vr-view-ws"
+    }
+
+    private fun parseReachabilityTarget(wsUrl: String): ReachabilityTarget? {
+        return try {
+            val uri = URI(wsUrl)
+            val host = uri.host?.trim().orEmpty()
+            if (host.isBlank()) return null
+
+            val port = when {
+                uri.port > 0 -> uri.port
+                uri.scheme.equals("wss", ignoreCase = true) -> 443
+                else -> 80
+            }
+
+            ReachabilityTarget(host, port)
+        } catch (e: Exception) {
+            Log.e(TAG, "Bad control WS URL: $wsUrl", e)
+            null
+        }
     }
 
     private fun startTeacherControlWithReachabilityCheck() {
-        val ipToCheck = serverIp
-        val portToCheck = vrWsPort
+        val wsUrl = buildTeacherControlWsUrl()
+        val target = parseReachabilityTarget(wsUrl)
+
+        if (target == null) {
+            showControlServerIpDialog("Некорректный адрес сервера управления:\n$wsUrl")
+            return
+        }
 
         Thread {
             var socket: Socket? = null
+            val ipToCheck = target.host
+            val portToCheck = target.port
             try {
-                Log.d(TAG, "Checking control server $ipToCheck:$portToCheck")
+                Log.d(TAG, "Checking control server ${target.host}:${target.port} for $wsUrl")
                 socket = Socket()
-                socket.connect(InetSocketAddress(ipToCheck, portToCheck), 2500)
-                Log.d(TAG, "Control server reachable: $ipToCheck:$portToCheck")
+                socket.connect(InetSocketAddress(target.host, target.port), 2500)
+                Log.d(TAG, "Control server reachable: ${target.host}:${target.port}")
 
                 runOnUiThread {
                     connectTeacherControlClient()
                 }
             } catch (e: Throwable) {
-                Log.e(TAG, "Control server is not reachable: $ipToCheck:$portToCheck", e)
+                Log.e(TAG, "Control server is not reachable: ${target.host}:${target.port}", e)
 
                 runOnUiThread {
                     showControlServerIpDialog(
@@ -315,6 +403,9 @@ class MainActivity : AppCompatActivity(),
             },
             onTextMarkClear = {
                 clearTextMarksInsideSphere()
+            },
+            onConnectionUnavailable = {
+                showControlServerIpDialog(it)
             }
         )
 
@@ -328,49 +419,79 @@ class MainActivity : AppCompatActivity(),
 
         serverIpDialogShown = true
 
-        val editText = EditText(this).apply {
+        val wsEditText = EditText(this).apply {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
-            hint = "192.168.1.104"
+            hint = "ws://192.168.1.104:8071/vr-view-ws"
             setSingleLine(true)
-            setText(serverIp)
+            setText(controlServerEndpoint)
             selectAll()
         }
 
-        val container = FrameLayout(this).apply {
-            val padding = (24 * resources.displayMetrics.density).toInt()
-            setPadding(padding, 8, padding, 0)
-            addView(editText)
+        val streamEditText = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
+            hint = "http://192.168.10.1:7088/udp/239.0.0.1:5004"
+            setSingleLine(true)
+            setText(videoStreamUrl)
         }
 
-        AlertDialog.Builder(this)
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val padding = (24 * resources.displayMetrics.density).toInt()
+            setPadding(padding, 8, padding, 0)
+            addView(wsEditText)
+            addView(streamEditText)
+        }
+
+        val dismissHandler = Handler(Looper.getMainLooper())
+        var dialog: AlertDialog? = null
+        val autoDismiss = Runnable {
+            dialog?.dismiss()
+        }
+
+        dialog = AlertDialog.Builder(this)
             .setTitle("Адрес компьютера управления")
             .setMessage(
                 "$message\n\n" +
-                    "Введите IP компьютера, где запущен сервер 360 управления. " +
-                    "Например: 192.168.1.104"
+                    "Верхнее поле: адрес WS-сервера управления.\n" +
+                    "Нижнее поле: HTTP-адрес видеопотока от udpxy или msd_lite."
             )
             .setView(container)
             .setPositiveButton("Сохранить") { _, _ ->
-                val newIp = normalizeControlServerIp(editText.text?.toString().orEmpty())
+                dismissHandler.removeCallbacks(autoDismiss)
+                val newEndpoint = normalizeControlServerEndpoint(wsEditText.text?.toString().orEmpty())
+                val newStreamUrl = normalizeVideoStreamUrl(streamEditText.text?.toString().orEmpty())
                 serverIpDialogShown = false
 
-                if (newIp.isBlank()) {
+                if (newEndpoint.isBlank()) {
                     showControlServerIpDialog("IP адрес пустой. Введите адрес компьютера управления.")
                     return@setPositiveButton
                 }
 
-                serverIp = newIp
-                saveControlServerIp(newIp)
-                Log.d(TAG, "Saved control server IP: $serverIp")
+                if (newStreamUrl.isBlank()) {
+                    showControlServerIpDialog("HTTP адрес видеопотока пустой. Введите URL потока от udpxy или msd_lite.")
+                    return@setPositiveButton
+                }
+
+                controlServerEndpoint = newEndpoint
+                videoStreamUrl = newStreamUrl
+                saveControlServerEndpoint(newEndpoint)
+                saveVideoStreamUrl(newStreamUrl)
+                videoTexturePlayer.setStreamSourceUrl(newStreamUrl)
+                Log.d(TAG, "Saved control server endpoint: $controlServerEndpoint")
+                Log.d(TAG, "Saved video stream URL: $videoStreamUrl")
                 startTeacherControlWithReachabilityCheck()
             }
             .setNegativeButton("Отмена") { _, _ ->
+                dismissHandler.removeCallbacks(autoDismiss)
                 serverIpDialogShown = false
             }
             .setOnDismissListener {
+                dismissHandler.removeCallbacks(autoDismiss)
                 serverIpDialogShown = false
             }
             .show()
+
+        dismissHandler.postDelayed(autoDismiss, CONTROL_SERVER_DIALOG_TIMEOUT_MS)
     }
 
     private fun forceStart360CardboardDirect() {
@@ -765,13 +886,13 @@ class MainActivity : AppCompatActivity(),
         canvas.drawRoundRect(rect, 18f, 18f, backgroundPaint)
         canvas.drawRoundRect(rect.insetCopy(2f), 18f, 18f, borderPaint)
 
-        val padding = 22
+        val padding = 26
         val textPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.WHITE
             textSize = when {
-                height <= 100 -> 24f
-                height <= 160 -> 30f
-                else -> 36f
+                height <= 100 -> 18f
+                height <= 160 -> 22f
+                else -> 26f
             }
             textAlign = Paint.Align.LEFT
         }
@@ -791,8 +912,8 @@ class MainActivity : AppCompatActivity(),
         val textWidth = width - padding * 2
         val staticLayout = StaticLayout.Builder
             .obtain(spannedText, 0, spannedText.length, textPaint, textWidth)
-            .setAlignment(Layout.Alignment.ALIGN_CENTER)
-            .setLineSpacing(0f, 1.0f)
+            .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+            .setLineSpacing(4f, 1.0f)
             .setIncludePad(false)
             .build()
 

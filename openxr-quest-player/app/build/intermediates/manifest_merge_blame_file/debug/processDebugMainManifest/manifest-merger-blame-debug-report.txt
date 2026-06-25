@@ -1,0 +1,138 @@
+1<?xml version="1.0" encoding="utf-8"?>
+2<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+3    package="cz.mormegil.openxrquestplayer"
+4    android:versionCode="1"
+5    android:versionName="0.1.0" >
+6
+7    <uses-sdk
+8        android:minSdkVersion="29"
+9        android:targetSdkVersion="36" />
+10
+11    <uses-feature
+11-->C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:4:5-6:35
+12        android:glEsVersion="0x00030002"
+12-->C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:5:9-41
+13        android:required="true" />
+13-->C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:6:9-32
+14    <uses-feature
+14-->C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:7:5-10:31
+15        android:name="android.hardware.vr.headtracking"
+15-->C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:8:9-56
+16        android:required="false"
+16-->C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:9:9-33
+17        android:version="1" />
+17-->C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:10:9-28
+18
+19    <uses-permission android:name="android.permission.INTERNET" />
+19-->C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:12:5-67
+19-->C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:12:22-64
+20    <uses-permission android:name="android.permission.VIBRATE" />
+20-->C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:13:5-66
+20-->C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:13:22-63
+21    <uses-permission android:name="android.permission.WAKE_LOCK" />
+21-->C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:14:5-68
+21-->C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:14:22-65
+22    <uses-permission android:name="org.khronos.openxr.permission.OPENXR" />
+22-->C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:15:5-76
+22-->C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:15:22-73
+23    <uses-permission android:name="org.khronos.openxr.permission.OPENXR_SYSTEM" />
+23-->C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:16:5-83
+23-->C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:16:22-80
+24
+25    <queries>
+25-->C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:18:5-26:15
+26        <provider android:authorities="org.khronos.openxr.runtime_broker;org.khronos.openxr.system_runtime_broker" />
+26-->C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:19:9-118
+26-->C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:19:19-115
+27
+28        <intent>
+28-->C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:20:9-22:18
+29            <action android:name="org.khronos.openxr.OpenXRRuntimeService" />
+29-->C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:21:13-78
+29-->C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:21:21-75
+30        </intent>
+31        <intent>
+31-->C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:23:9-25:18
+32            <action android:name="org.khronos.openxr.OpenXRApiLayerService" />
+32-->C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:24:13-79
+32-->C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:24:21-76
+33        </intent>
+34    </queries>
+35
+36    <application
+36-->C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:28:5-56:19
+37        android:allowBackup="false"
+37-->C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:29:9-36
+38        android:appComponentFactory="androidx.core.app.CoreComponentFactory"
+38-->[androidx.core:core:1.0.0] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\a24df9d287e07b87d6aedbce33d6c527\transformed\core-1.0.0\AndroidManifest.xml:22:18-86
+39        android:debuggable="true"
+40        android:extractNativeLibs="false"
+41        android:hasCode="true"
+41-->C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:30:9-31
+42        android:icon="@mipmap/ic_launcher"
+42-->C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:31:9-43
+43        android:label="@string/app_name"
+43-->C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:32:9-41
+44        android:roundIcon="@mipmap/ic_launcher_round"
+44-->C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:33:9-54
+45        android:supportsRtl="false"
+45-->C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:35:9-36
+46        android:testOnly="true"
+47        android:theme="@style/Theme.OpenXRQuestPlayer"
+47-->C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:36:9-55
+48        android:usesCleartextTraffic="true" >
+48-->C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:34:9-44
+49        <activity
+49-->C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:38:9-55:20
+50            android:name="cz.mormegil.openxrquestplayer.QuestPlayerActivity"
+50-->C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:39:13-48
+51            android:configChanges="density|keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
+51-->C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:40:13-141
+52            android:exported="true"
+52-->C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:41:13-36
+53            android:launchMode="singleTask"
+53-->C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:42:13-44
+54            android:resizeableActivity="false"
+54-->C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:43:13-47
+55            android:screenOrientation="landscape" >
+55-->C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:44:13-50
+56            <meta-data
+56-->C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:46:13-48:55
+57                android:name="android.app.lib_name"
+57-->C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:47:17-52
+58                android:value="openxr_quest_player" />
+58-->C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:48:17-52
+59
+60            <intent-filter>
+60-->C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:50:13-54:29
+61                <action android:name="android.intent.action.MAIN" />
+61-->C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:51:17-69
+61-->C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:51:25-66
+62
+63                <category android:name="android.intent.category.LAUNCHER" />
+63-->C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:52:17-77
+63-->C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:52:27-74
+64                <category android:name="org.khronos.openxr.intent.category.IMMERSIVE_HMD" />
+64-->C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:53:17-93
+64-->C:\dev\vr360\openxr-quest-player\app\src\main\AndroidManifest.xml:53:27-90
+65            </intent-filter>
+66        </activity>
+67
+68        <provider
+68-->[com.squareup.okhttp3:okhttp-android:5.3.2] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\61216022bfcef3f1db2aae7f42485e4b\transformed\okhttp-release\AndroidManifest.xml:11:9-19:20
+69            android:name="androidx.startup.InitializationProvider"
+69-->[com.squareup.okhttp3:okhttp-android:5.3.2] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\61216022bfcef3f1db2aae7f42485e4b\transformed\okhttp-release\AndroidManifest.xml:12:13-67
+70            android:authorities="cz.mormegil.openxrquestplayer.androidx-startup"
+70-->[com.squareup.okhttp3:okhttp-android:5.3.2] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\61216022bfcef3f1db2aae7f42485e4b\transformed\okhttp-release\AndroidManifest.xml:13:13-68
+71            android:exported="false" >
+71-->[com.squareup.okhttp3:okhttp-android:5.3.2] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\61216022bfcef3f1db2aae7f42485e4b\transformed\okhttp-release\AndroidManifest.xml:14:13-37
+72            <meta-data
+72-->[com.squareup.okhttp3:okhttp-android:5.3.2] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\61216022bfcef3f1db2aae7f42485e4b\transformed\okhttp-release\AndroidManifest.xml:16:13-18:52
+73                android:name="okhttp3.internal.platform.PlatformInitializer"
+73-->[com.squareup.okhttp3:okhttp-android:5.3.2] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\61216022bfcef3f1db2aae7f42485e4b\transformed\okhttp-release\AndroidManifest.xml:17:17-77
+74                android:value="androidx.startup" />
+74-->[com.squareup.okhttp3:okhttp-android:5.3.2] C:\Users\user\.gradle\caches\9.0-milestone-1\transforms\61216022bfcef3f1db2aae7f42485e4b\transformed\okhttp-release\AndroidManifest.xml:18:17-49
+75        </provider>
+76    </application>
+77
+78</manifest>

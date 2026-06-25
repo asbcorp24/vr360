@@ -119,6 +119,61 @@ static constexpr std::array<float, 6> cardboardAlignLineCoords = {
 
 static constexpr GLubyte trivial2DData[] = {0, 1};
 
+static void Draw2DLine(GLint program2DParamPosition,
+                       float x0,
+                       float y0,
+                       float x1,
+                       float y1) {
+    const GLfloat coords[] = {
+            x0, y0, 0.5f,
+            x1, y1, 0.5f
+    };
+
+    glEnableVertexAttribArray(program2DParamPosition);
+    glVertexAttribPointer(program2DParamPosition, 3, GL_FLOAT, GL_FALSE, 0, coords);
+    glDrawElements(GL_LINES, 2, GL_UNSIGNED_BYTE, trivial2DData);
+}
+
+static void DrawDigit2D(GLint program2DParamPosition,
+                        int digit,
+                        float x,
+                        float y,
+                        float width,
+                        float height) {
+    static constexpr uint8_t kSegments[10] = {
+            0b1111110, // 0
+            0b0110000, // 1
+            0b1101101, // 2
+            0b1111001, // 3
+            0b0110011, // 4
+            0b1011011, // 5
+            0b1011111, // 6
+            0b1110000, // 7
+            0b1111111, // 8
+            0b1111011  // 9
+    };
+
+    if (digit < 0 || digit > 9) {
+        return;
+    }
+
+    const float left = x;
+    const float right = x + width;
+    const float top = y;
+    const float mid = y - height * 0.5f;
+    const float bottom = y - height;
+
+    const uint8_t mask = kSegments[digit];
+
+    if (mask & 0b1000000) Draw2DLine(program2DParamPosition, left, top, right, top);
+    if (mask & 0b0100000) Draw2DLine(program2DParamPosition, right, top, right, mid);
+    if (mask & 0b0010000) Draw2DLine(program2DParamPosition, right, mid, right, bottom);
+    if (mask & 0b0001000) Draw2DLine(program2DParamPosition, left, bottom, right, bottom);
+    if (mask & 0b0000100) Draw2DLine(program2DParamPosition, left, mid, left, bottom);
+    if (mask & 0b0000010) Draw2DLine(program2DParamPosition, left, top, left, mid);
+    if (mask & 0b0000001) Draw2DLine(program2DParamPosition, left, mid, right, mid);
+}
+
 /*
  * ВАЖНО:
  * Делаем file-scope флаг, чтобы не менять Renderer.h.
@@ -134,9 +189,10 @@ static bool gCardboardReady = false;
  * 2) немного удержали точку;
  * 3) сбросили серверную базу, чтобы голова снова двигалась в нормальной системе координат.
  */
-static constexpr uint64_t kLookAtHoldMs = 1500;
+static constexpr uint64_t kLookAtHoldMs = 30000;
 static bool gLookAtHolding = false;
 static uint64_t gLookAtHoldStartMs = 0;
+static constexpr float kVideoUvInset = 0.001f;
 
 static std::array<VRGuiButton, 10> vrGuiButtons{
         VRGuiButton(M_PI - 1 * VR_GUI_BUTTON_GRID, VR_GUI_BUTTON_PHI_0 - 1 * VR_GUI_BUTTON_GRID,
@@ -224,6 +280,7 @@ void Renderer::SetManualRotation(float yawValue, float pitchValue, float rollVal
 
 void Renderer::LookAtPoint(float yawDeg, float pitchDeg, float fovDeg, int durationMs) {
     useLookAtControl = true;
+    lookAtPoseFrozen = false;
 
     startYaw = controlYaw;
     startPitch = controlPitch;
@@ -407,10 +464,8 @@ void Renderer::OnSurfaceCreated(JNIEnv *env) {
     programVRGuiParamMVPMatrix = glGetUniformLocation(programVRGui, "u_MVP");
     CHECK_GL_ERROR("VR Gui program params");
 
-    InitStaticTexture(env, buttonTexture, "buttons-texture.png");
-
     // Текстура для точек и стрелок текстовых меток внутри сферы.
-    InitSolidRgbaTexture(textMarkIndicatorTexture, 0, 230, 255, 255);
+    InitSolidRgbaTexture(textMarkIndicatorTexture, 0, 230, 255, 150);
 
     const GLuint vertexShader2D = LoadGLShader(GL_VERTEX_SHADER, kVertexShader2D);
     const GLuint fragmentShader2D = LoadGLShader(GL_FRAGMENT_SHADER, kFragmentShader2D);
@@ -538,32 +593,14 @@ void Renderer::DrawFrame(float videoPosition, JNIEnv *env) {
             CHECK_GL_ERROR("Render progress bar");
         }
 
-        if (vrGuiShown) {
-            glUseProgram(programVRGui);
-            glBindTexture(GL_TEXTURE_2D, buttonTexture);
-
-            glm::mat4 guiMvpMatrix = glm::rotate(
-                    mvpMatrix,
-                    (float) M_PI - vrGuiCenterTheta,
-                    Y_AXIS
-            );
-
-            glUniformMatrix4fv(
-                    programVRGuiParamMVPMatrix,
-                    1,
-                    GL_FALSE,
-                    glm::value_ptr(guiMvpMatrix)
-            );
-
-            for (const VRGuiButton &button: vrGuiButtons) {
-                button.render(programVRGuiParamPosition, programVRGuiParamUV);
-            }
-
+        const uint64_t releaseRemainingMs = GetLookAtReleaseRemainingMs();
+        if (releaseRemainingMs > 0) {
+            const int remainingSeconds = static_cast<int>((releaseRemainingMs + 999ULL) / 1000ULL);
             glUseProgram(program2D);
-            RenderPointer();
-
-            CHECK_GL_ERROR("Render GUI");
+            RenderLookAtCountdown(remainingSeconds);
+            CHECK_GL_ERROR("Render look-at countdown");
         }
+
     }
 
     /*
@@ -616,6 +653,46 @@ void Renderer::RenderCardboardAlignLine() {
     glDrawElements(GL_LINES, 2, GL_UNSIGNED_BYTE, trivial2DData);
 }
 
+uint64_t Renderer::GetLookAtReleaseRemainingMs() const {
+    if (lookAtAnimating) {
+        const uint64_t nowMs = GetBootTimeNano() / 1000000ULL;
+        const uint64_t animElapsed = nowMs > lookAtStartMs ? nowMs - lookAtStartMs : 0;
+        const uint64_t animRemaining = animElapsed >= lookAtDurationMs
+                                       ? 0
+                                       : (lookAtDurationMs - animElapsed);
+        return animRemaining + kLookAtHoldMs;
+    }
+
+    if (gLookAtHolding) {
+        const uint64_t nowMs = GetBootTimeNano() / 1000000ULL;
+        const uint64_t holdElapsed = nowMs > gLookAtHoldStartMs ? nowMs - gLookAtHoldStartMs : 0;
+        return holdElapsed >= kLookAtHoldMs ? 0 : (kLookAtHoldMs - holdElapsed);
+    }
+
+    return 0;
+}
+
+void Renderer::RenderLookAtCountdown(int remainingSeconds) const {
+    if (remainingSeconds <= 0) {
+        return;
+    }
+
+    const int clampedSeconds = std::min(99, remainingSeconds);
+    const int tens = clampedSeconds / 10;
+    const int ones = clampedSeconds % 10;
+
+    const float top = 0.90f;
+    const float digitWidth = 0.055f;
+    const float digitHeight = 0.10f;
+    const float gap = 0.022f;
+    const float totalWidth = digitWidth * 2.0f + gap;
+    const float startX = 0.90f - totalWidth;
+
+    glLineWidth(2.0f);
+    DrawDigit2D(program2DParamPosition, tens, startX, top, digitWidth, digitHeight);
+    DrawDigit2D(program2DParamPosition, ones, startX + digitWidth + gap, top, digitWidth, digitHeight);
+}
+
 
 static bool IsFinite3(float x, float y, float z) {
     return std::isfinite(x) && std::isfinite(y) && std::isfinite(z);
@@ -630,7 +707,12 @@ static glm::vec3 DirectionFromTextMarkPoint(float x,
         glm::vec3 v(x, y, z);
         const float len = glm::length(v);
         if (len > 0.001f) {
-            return glm::normalize(v);
+            /*
+             * Совмещаемся с direct_360_renderer на сервере:
+             * там x/y/z сначала переводятся в legacy yaw/pitch,
+             * что в итоге эквивалентно направлению -normalize(x,y,z).
+             */
+            return -glm::normalize(v);
         }
     }
 
@@ -680,21 +762,21 @@ static void TextMarkSize(float markWidth,
     const float safeHeight = std::max(1.0f, markHeight);
     const float aspect = safeWidth / safeHeight;
 
-    halfHeight = 0.16f;
+    halfHeight = 0.11f;
     if (safeHeight > 160.0f) {
-        halfHeight = 0.20f;
+        halfHeight = 0.14f;
     }
     if (safeHeight > 260.0f) {
-        halfHeight = 0.25f;
+        halfHeight = 0.18f;
     }
 
     halfWidth = halfHeight * aspect;
-    halfWidth = glm::clamp(halfWidth, 0.18f, 0.70f);
-    halfHeight = glm::clamp(halfHeight, 0.10f, 0.32f);
+    halfWidth = glm::clamp(halfWidth, 0.12f, 0.46f);
+    halfHeight = glm::clamp(halfHeight, 0.07f, 0.22f);
 }
 
 static glm::vec3 TextMarkAnchor(const glm::vec3 &direction) {
-    return glm::normalize(direction) * 0.82f;
+    return glm::normalize(direction) * 0.90f;
 }
 
 static glm::vec3 TextMarkPanelCenter(const glm::vec3 &direction,
@@ -714,7 +796,7 @@ static glm::vec3 TextMarkPanelCenter(const glm::vec3 &direction,
      * Он сдвинут вправо по касательной, чтобы точка привязки была видна отдельно,
      * как на web-просмотрщике: точка -> указатель -> окно с текстом.
      */
-    const float gap = 0.055f;
+    const float gap = 0.045f;
     return TextMarkAnchor(direction) + right * (halfWidth + gap);
 }
 
@@ -738,10 +820,11 @@ static TexturedMesh BuildTextMarkMesh(float x,
 
     const glm::vec3 center = TextMarkPanelCenter(direction, markWidth, markHeight);
 
-    const glm::vec3 p0 = center - right * halfWidth + up * halfHeight; // top-left
-    const glm::vec3 p1 = center + right * halfWidth + up * halfHeight; // top-right
-    const glm::vec3 p2 = center + right * halfWidth - up * halfHeight; // bottom-right
-    const glm::vec3 p3 = center - right * halfWidth - up * halfHeight; // bottom-left
+    const float skew = halfWidth * 0.18f;
+    const glm::vec3 p0 = center - right * (halfWidth - skew) + up * halfHeight; // top-left
+    const glm::vec3 p1 = center + right * (halfWidth + skew) + up * halfHeight; // top-right
+    const glm::vec3 p2 = center + right * (halfWidth - skew) - up * halfHeight; // bottom-right
+    const glm::vec3 p3 = center - right * (halfWidth + skew) - up * halfHeight; // bottom-left
 
     std::unique_ptr<GLfloat[]> pos{new GLfloat[12]{
             p0.x, p0.y, p0.z,
@@ -943,16 +1026,16 @@ static TexturedMesh BuildTextMarkDirectionIndicatorMesh(const glm::vec3 &targetD
      * Строим стрелку в camera-space на расстоянии перед камерой.
      * Потом переведём её в world-space через inverse(viewMatrix).
      */
-    const float z = -0.72f;
+    const float z = -0.46f;
     const glm::vec3 center(center2.x, center2.y, z);
     const glm::vec3 arrowDir(dir2.x, dir2.y, 0.0f);
     const glm::vec3 side(-dir2.y, dir2.x, 0.0f);
 
     /* Нормальная стрелка: хвост + широкий наконечник. */
-    const float totalLength = 0.22f;
-    const float shaftLength = 0.13f;
-    const float shaftHalfWidth = 0.018f;
-    const float headHalfWidth = 0.060f;
+    const float totalLength = 0.18f;
+    const float shaftLength = 0.11f;
+    const float shaftHalfWidth = 0.015f;
+    const float headHalfWidth = 0.048f;
 
     const glm::vec3 tailCenter = center - arrowDir * (totalLength * 0.50f);
     const glm::vec3 shaftEndCenter = tailCenter + arrowDir * shaftLength;
@@ -1062,7 +1145,7 @@ void Renderer::RenderTextMarks(const glm::mat4 &mvpMatrix) {
         const float visibleDot = glm::clamp(glm::dot(currentForward, markDir), -1.0f, 1.0f);
         const float angleToMark = std::acos(visibleDot);
 
-        if (angleToMark > glm::radians(12.0f) && textMarkIndicatorTexture != 0) {
+        if (angleToMark > glm::radians(22.0f) && textMarkIndicatorTexture != 0) {
             TexturedMesh indicatorMesh =
                     BuildTextMarkDirectionIndicatorMesh(markDir, viewMatrix, angleToMark);
 
@@ -1464,6 +1547,7 @@ void Renderer::UpdateLookAtAnimation() {
              * После этого движение головой снова идёт без учёта последней точки сервера.
              */
             useLookAtControl = false;
+            lookAtPoseFrozen = false;
             controlFov = 90.0f;
 
             LOG_DEBUG("LookAtPoint hold finished: reset server base rotation");
@@ -1705,6 +1789,201 @@ static TexturedMesh BuildUvSphereMesh(int n_slices,
     return meshBuilder.build();
 }
 
+struct StereoProjectionProfile {
+    bool flat;
+    float horizontalFovDeg;
+    float verticalFovDeg;
+    bool edgeStretch;
+};
+
+static TexturedMesh BuildStereoProjectionMesh(int nSlices,
+                                             int nStacks,
+                                             float uvLeft,
+                                             float uvTop,
+                                             float uvRight,
+                                             float uvBottom,
+                                             const StereoProjectionProfile &profile) {
+    TexturedMesh::Builder meshBuilder;
+
+    if (profile.flat) {
+        return BuildUvSphereMesh(
+                nSlices,
+                nStacks,
+                M_PI_2,
+                M_PI * 1.5f,
+                uvLeft,
+                uvTop,
+                uvRight,
+                uvBottom
+        );
+    }
+
+    const float yawSpan = glm::radians(profile.horizontalFovDeg);
+    const float verticalSpan = glm::radians(profile.verticalFovDeg);
+    const float phiOffset = 0.5f * (float(M_PI) - verticalSpan);
+    const float uvWidth = uvRight - uvLeft;
+    const float uvHeight = uvBottom - uvTop;
+
+    for (int i = 0; i <= nStacks; ++i) {
+        const float vFrac = float(i) / float(nStacks);
+        const float phi = phiOffset + verticalSpan * vFrac;
+        const float v = uvTop + uvHeight * vFrac;
+
+        for (int j = 0; j <= nSlices; ++j) {
+            const float uFrac = float(j) / float(nSlices);
+            const float yaw = -0.5f * yawSpan + uFrac * yawSpan;
+            const float u = uvLeft + uvWidth * uFrac;
+
+            const float x = std::sin(yaw) * std::sin(phi);
+            const float y = std::cos(phi);
+            const float z = -std::cos(yaw) * std::sin(phi);
+
+            meshBuilder.add_vertex(x, y, z, u, v);
+        }
+    }
+
+    for (int j = 0; j < nStacks; ++j) {
+        const auto j0 = j * (nSlices + 1);
+        const auto j1 = (j + 1) * (nSlices + 1);
+
+        for (int i = 0; i < nSlices; ++i) {
+            const auto i0 = j0 + i;
+            const auto i1 = j0 + (i + 1);
+            const auto i2 = j1 + (i + 1);
+            const auto i3 = j1 + i;
+
+            if (j == 0) {
+                meshBuilder.add_triangle(i0, i2, i3);
+            } else if (j == (nStacks - 1)) {
+                meshBuilder.add_triangle(i0, i2, i1);
+            } else {
+                meshBuilder.add_quad(i0, i1, i2, i3);
+            }
+        }
+    }
+
+    if (profile.edgeStretch) {
+        const float extra = glm::radians(20.0f);
+        const float leftU = uvLeft + uvWidth * 0.01f;
+        const float rightU = uvRight - uvWidth * 0.01f;
+
+        auto addStretchSide = [&](bool leftSide) {
+            for (int stack = 0; stack < nStacks; ++stack) {
+                const float v1 = float(stack) / float(nStacks);
+                const float v2 = float(stack + 1) / float(nStacks);
+                const float phi1 = phiOffset + verticalSpan * v1;
+                const float phi2 = phiOffset + verticalSpan * v2;
+
+                for (int slice = 0; slice <= nSlices; ++slice) {
+                    const float t = float(slice) / float(nSlices);
+
+                    float yaw = 0.0f;
+                    float u = 0.0f;
+                    if (leftSide) {
+                        yaw = (-0.5f * yawSpan - extra) + t * extra;
+                        u = leftU;
+                    } else {
+                        yaw = 0.5f * yawSpan + t * extra;
+                        u = rightU;
+                    }
+
+                    const float x1 = std::sin(yaw) * std::sin(phi1);
+                    const float y1 = std::cos(phi1);
+                    const float z1 = -std::cos(yaw) * std::sin(phi1);
+
+                    const float x2 = std::sin(yaw) * std::sin(phi2);
+                    const float y2 = std::cos(phi2);
+                    const float z2 = -std::cos(yaw) * std::sin(phi2);
+
+                    const GLushort i1 = meshBuilder.add_vertex(x1, y1, z1, u, uvTop + uvHeight * v1);
+                    const GLushort i2 = meshBuilder.add_vertex(x2, y2, z2, u, uvTop + uvHeight * v2);
+
+                    if (slice > 0) {
+                        meshBuilder.add_quad(i1 - 2, i1, i2, i2 - 2);
+                    }
+                }
+            }
+        };
+
+        addStretchSide(true);
+        addStretchSide(false);
+    }
+
+    return meshBuilder.build();
+}
+
+static TexturedMesh BuildDualFisheye180Mesh(int n_slices,
+                                            int n_stacks,
+                                            float uvLeft,
+                                            float uvTop,
+                                            float uvRight,
+                                            float uvBottom) {
+    TexturedMesh::Builder meshBuilder;
+
+    const float minTheta = M_PI_2;
+    const float maxTheta = M_PI * 1.5f;
+    const float thetaRange = maxTheta - minTheta;
+    const float uvCenterU = 0.5f * (uvLeft + uvRight);
+    const float uvCenterV = 0.5f * (uvTop + uvBottom);
+    const float uvRadiusU = 0.5f * (uvRight - uvLeft);
+    const float uvRadiusV = 0.5f * (uvBottom - uvTop);
+
+    for (int i = 0; i <= n_stacks; i++) {
+        const float vFrac = float(i) / float(n_stacks);
+        const float phi = float(M_PI) * vFrac;
+
+        for (int j = 0; j <= n_slices; j++) {
+            const float uFrac = float(j) / float(n_slices);
+            const float theta = -(minTheta + thetaRange * uFrac);
+
+            const float x = std::sinf(phi) * std::sinf(theta);
+            const float y = std::cosf(phi);
+            const float z = std::sinf(phi) * std::cosf(theta);
+
+            const glm::vec3 dir = glm::normalize(glm::vec3(x, y, z));
+            const float forwardDot = glm::clamp(-dir.z, -1.0f, 1.0f);
+            const float angle = std::acos(forwardDot);
+            const float radial = glm::clamp(angle / float(M_PI_2), 0.0f, 1.0f);
+            const float planeLen = std::sqrt(dir.x * dir.x + dir.y * dir.y);
+
+            float u = uvCenterU;
+            float v = uvCenterV;
+
+            if (planeLen > 0.0001f) {
+                const float nx = dir.x / planeLen;
+                const float ny = -dir.y / planeLen;
+
+                u += nx * radial * uvRadiusU;
+                v += ny * radial * uvRadiusV;
+            }
+
+            meshBuilder.add_vertex(x, y, z, u, v);
+        }
+    }
+
+    for (int j = 0; j < n_stacks; j++) {
+        const auto j0 = j * (n_slices + 1);
+        const auto j1 = (j + 1) * (n_slices + 1);
+
+        for (int i = 0; i < n_slices; i++) {
+            const auto i0 = j0 + i;
+            const auto i1 = j0 + (i + 1);
+            const auto i2 = j1 + (i + 1);
+            const auto i3 = j1 + i;
+
+            if (j == 0) {
+                meshBuilder.add_triangle(i0, i2, i3);
+            } else if (j == (n_stacks - 1)) {
+                meshBuilder.add_triangle(i0, i2, i1);
+            } else {
+                meshBuilder.add_quad(i0, i1, i2, i3);
+            }
+        }
+    }
+
+    return meshBuilder.build();
+}
+
 static TexturedMesh BuildCylindricalMesh(int n_slices,
                                          float minTheta,
                                          float maxTheta,
@@ -1767,6 +2046,14 @@ void Renderer::ComputeMesh() {
                 assert(false);
         }
 
+        if ((uvRight - uvLeft) > (kVideoUvInset * 2.0f) &&
+            (uvBottom - uvTop) > (kVideoUvInset * 2.0f)) {
+            uvLeft += kVideoUvInset;
+            uvRight -= kVideoUvInset;
+            uvTop += kVideoUvInset;
+            uvBottom -= kVideoUvInset;
+        }
+
         switch (inputVideoMode) {
             case InputVideoMode::PLAIN_FOV: {
                 const float xScale = videoAspect > 1.0f ? 1.0f : (1.0f / videoAspect);
@@ -1813,6 +2100,53 @@ void Renderer::ComputeMesh() {
                         uvTop,
                         uvRight,
                         uvBottom
+                );
+                break;
+
+            case InputVideoMode::STEREO_180:
+                eyeMeshes[eye] = BuildStereoProjectionMesh(
+                        48,
+                        28,
+                        uvLeft,
+                        uvTop,
+                        uvRight,
+                        uvBottom,
+                        {false, 180.0f, 180.0f, true}
+                );
+                break;
+
+            case InputVideoMode::DUAL_FISHEYE_180:
+                eyeMeshes[eye] = BuildDualFisheye180Mesh(
+                        40,
+                        20,
+                        uvLeft,
+                        uvTop,
+                        uvRight,
+                        uvBottom
+                );
+                break;
+
+            case InputVideoMode::STEREO_180_16X9:
+                eyeMeshes[eye] = BuildStereoProjectionMesh(
+                        48,
+                        28,
+                        uvLeft,
+                        uvTop,
+                        uvRight,
+                        uvBottom,
+                        {false, 180.0f, 101.25f, false}
+                );
+                break;
+
+            case InputVideoMode::STEREO_130:
+                eyeMeshes[eye] = BuildStereoProjectionMesh(
+                        48,
+                        28,
+                        uvLeft,
+                        uvTop,
+                        uvRight,
+                        uvBottom,
+                        {false, 130.0f, 73.125f, false}
                 );
                 break;
 
@@ -1923,45 +2257,41 @@ void Renderer::UpdatePose(JNIEnv *env) {
                 glm::value_ptr(headOrientationQuat)
         );
 
-        viewMatrix = glm::toMat4(headOrientationQuat);
+        const glm::mat4 trackerViewMatrix = glm::toMat4(headOrientationQuat);
 
-        const glm::vec4 pointVector = viewMatrix * NEG_Z_AXIS;
+        const glm::vec4 trackerPointVector = trackerViewMatrix * NEG_Z_AXIS;
 
-        pitch = asinf(pointVector.y);
+        const float trackerPitch = asinf(trackerPointVector.y);
+        float trackerYaw = yaw;
+
+        if (trackerPitch <= 1.55f) {
+            trackerYaw = -atan2f(trackerPointVector.x, trackerPointVector.z);
+        }
+
+        if (useLookAtControl) {
+            if (!lookAtPoseFrozen) {
+                frozenViewMatrix = glm::mat4(1.0f);
+                frozenYaw = 0.0f;
+                frozenPitch = 0.0f;
+                lookAtPoseFrozen = true;
+            }
+
+            viewMatrix = frozenViewMatrix;
+            yaw = frozenYaw;
+            pitch = frozenPitch;
+            return;
+        }
+
+        lookAtPoseFrozen = false;
+        viewMatrix = trackerViewMatrix;
+        pitch = trackerPitch;
 
         if (pitch > 1.55f) {
             /*
              * Слишком вертикально — оставляем предыдущий yaw.
              */
         } else {
-            yaw = -atan2f(pointVector.x, pointVector.z);
-        }
-
-        if (isHeadGesturingUp) {
-            if (pitch < HEAD_GESTURE_PITCH_LIMIT_RETURN) {
-                isHeadGesturingUp = false;
-                LOG_DEBUG("UpdatePose: Moved from up to not-up");
-            }
-        } else {
-            if (pitch > HEAD_GESTURE_PITCH_LIMIT) {
-                isHeadGesturingUp = true;
-                vrGuiShown = !vrGuiShown;
-                vrGuiCenterTheta = yaw;
-                LOG_DEBUG("UpdatePose: Moved from not-up to up");
-            }
-        }
-
-        if (vrGuiShown) {
-            for (VRGuiButton &button: vrGuiButtons) {
-                ButtonAction hitAction = button.evaluatePossibleHit(
-                        M_PI + yaw - vrGuiCenterTheta,
-                        pitch
-                );
-
-                if (hitAction != ButtonAction::NONE) {
-                    this->ExecuteButtonAction(hitAction, env);
-                }
-            }
+            yaw = trackerYaw;
         }
 
         return;
