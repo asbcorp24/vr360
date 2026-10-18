@@ -1,0 +1,83 @@
+name: VR360 Packager Check
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - "tools/vr360-packager/**"
+      - ".github/workflows/vr360-packager-check.yml"
+  pull_request:
+    paths:
+      - "tools/vr360-packager/**"
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Python syntax check
+        run: python -m compileall -q tools/vr360-packager
+
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+      - name: Create short test video
+        run: |
+          ffmpeg -y \
+            -f lavfi -i testsrc2=size=640x320:rate=30 \
+            -f lavfi -i sine=frequency=1000:sample_rate=48000 \
+            -t 4 \
+            -c:v libx264 -pix_fmt yuv420p \
+            -c:a aac \
+            /tmp/vr360-packager-test.mp4
+
+      - name: Package HLS CMAF test
+        env:
+          PYTHONPATH: tools/vr360-packager
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from packager.ffmpeg import package_video
+          from packager.models import PackageOptions, Rendition
+
+          output = Path("/tmp/vr360-packager-out")
+          options = PackageOptions(
+              input_file=Path("/tmp/vr360-packager-test.mp4"),
+              output_dir=output,
+              segment_duration=2.0,
+              encoder="libx264",
+              renditions=[
+                  Rendition("low", "LOW", 640, 320, 0.6),
+                  Rendition("high", "HIGH", 960, 480, 1.2),
+              ],
+          )
+
+          package_video(options, log_callback=print)
+
+          required = [
+              output / "master.m3u8",
+              output / "manifest.json",
+              output / "low" / "playlist.m3u8",
+              output / "low" / "init.mp4",
+              output / "high" / "playlist.m3u8",
+              output / "high" / "init.mp4",
+          ]
+          for path in required:
+              assert path.exists(), f"missing {path}"
+
+          low_playlist = (output / "low" / "playlist.m3u8").read_text()
+          assert "#EXT-X-MAP" in low_playlist
+          assert ".m4s" in low_playlist
+          assert "/tmp/" not in low_playlist, "playlist contains absolute local paths"
+
+          master = (output / "master.m3u8").read_text()
+          assert "low/playlist.m3u8" in master
+          assert "high/playlist.m3u8" in master
+          PY
