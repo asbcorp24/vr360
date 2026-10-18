@@ -71,8 +71,11 @@ dependencies {
     implementation("com.google.protobuf:protobuf-javalite:4.35.0")
     implementation("com.squareup.okhttp3:okhttp:5.3.2")
 
-    // Главное добавление: LibVLC для RTP/UDP multicast
-    implementation("org.videolan.android:libvlc-all:3.7.0")
+    // Adaptive HTTP video + HLS/CMAF + disk cache.
+    implementation("androidx.media3:media3-exoplayer:1.11.0")
+    implementation("androidx.media3:media3-exoplayer-hls:1.11.0")
+    implementation("androidx.media3:media3-datasource:1.11.0")
+    implementation("androidx.media3:media3-database:1.11.0")
 
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
