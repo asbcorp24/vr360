@@ -504,6 +504,52 @@ class MainActivity : AppCompatActivity(),
         )
     }
 
+    private fun startPlayerStatusUpdates() {
+        statusHandler.removeCallbacksAndMessages(null)
+
+        val runnable = object : Runnable {
+            override fun run() {
+                if (isFinishing) return
+
+                val mode =
+                    if (outputMode == OutputMode.CardboardStereo) "cardboard" else "phone"
+                val sourceLoaded = videoTexturePlayer.getStreamSourceUrl().isNotBlank()
+                val playing = videoTexturePlayer.isPlaying()
+                val videoHeight = videoTexturePlayer.getCurrentVideoHeight()
+                val lowCache = videoTexturePlayer.getLowPrecachePercent()
+
+                teacherControlClient?.sendPlayerStatus(
+                    clientId = clientId,
+                    deviceName = (Build.MANUFACTURER + " " + Build.MODEL).trim(),
+                    positionMs = videoTexturePlayer.getCurrentPositionMs(),
+                    bufferedMs = videoTexturePlayer.getBufferedPositionMs(),
+                    playing = playing,
+                    videoHeight = videoHeight,
+                    maxHeight = videoTexturePlayer.getMaxVideoHeight(),
+                    lowCachePercent = lowCache,
+                    speed = videoTexturePlayer.getPlaybackSpeed(),
+                    mode = mode
+                )
+
+                if (controlConnected) {
+                    val modeText =
+                        if (mode == "cardboard") "🥽 Cardboard" else "📱 Телефон"
+                    val mediaText = when {
+                        !sourceLoaded -> "ожидание видео"
+                        playing && videoHeight > 0 -> "▶ ${videoHeight}p"
+                        playing -> "▶ видео"
+                        else -> "⏸ пауза"
+                    }
+                    binding.playerStatusText.text =
+                        "● $clientId · $modeText · $mediaText · LOW $lowCache%"
+                }
+
+                statusHandler.postDelayed(this, 1000L)
+            }
+        }
+
+        statusHandler.post(runnable)
+    }
     fun closePlayer(view: View) {
         finish()
     }
@@ -721,14 +767,6 @@ class MainActivity : AppCompatActivity(),
             return
         }
 
-        /*
-         * Важно для твоей задачи:
-         * сервер может менять ТИП ВХОДНОГО ВИДЕО:
-         *   Mono / StereoHoriz / StereoVert
-         *   Equirect360 / Equirect180
-         * но приложение на смартфоне должно оставаться в Cardboard-режиме.
-         * Иначе после команды video_mode можно случайно уйти в MonoLeft/MonoRight.
-         */
         // Геометрию видео задаёт сервер, а Phone/Cardboard выбирает сам ученик.
         val effectiveOutputMode = outputMode
 
@@ -783,6 +821,8 @@ class MainActivity : AppCompatActivity(),
     private fun setOutputMode(newMode: OutputMode, menuItem: MenuItem) {
         if (newMode == outputMode) return
         outputMode = newMode
+        saveDisplayMode()
+        updateModeButtons()
         setNativeOptionsOnGlThread()
         menuItem.isChecked = true
         Log.d(TAG, "setOutputMode: $outputMode")
