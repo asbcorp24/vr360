@@ -517,6 +517,7 @@ class MainActivity : AppCompatActivity(),
                 val playing = videoTexturePlayer.isPlaying()
                 val videoHeight = videoTexturePlayer.getCurrentVideoHeight()
                 val lowCache = videoTexturePlayer.getLowPrecachePercent()
+                val cacheStatus = videoTexturePlayer.getPrecacheStatusText()
 
                 teacherControlClient?.sendPlayerStatus(
                     clientId = clientId,
@@ -541,7 +542,7 @@ class MainActivity : AppCompatActivity(),
                         else -> "⏸ пауза"
                     }
                     binding.playerStatusText.text =
-                        "● $clientId · $modeText · $mediaText · LOW $lowCache%"
+                        "● $clientId · $modeText · $mediaText · Кэш: $cacheStatus"
                 }
 
                 statusHandler.postDelayed(this, 1000L)
