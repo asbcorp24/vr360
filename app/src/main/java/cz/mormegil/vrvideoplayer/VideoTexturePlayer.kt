@@ -401,6 +401,29 @@ class VideoTexturePlayer(
     }
 
     /**
+     * Load a lesson/stream from the teacher without forcing immediate playback.
+     * This is the entry point for prepare_lesson/load over WebSocket.
+     */
+    fun loadFromServer(url: String, positionMs: Long = 0L, autoPlay: Boolean = false) {
+        val normalized = normalizeHttpStreamUrl(url)
+        if (normalized.isBlank()) return
+
+        streamSourceUrl = normalized
+        shouldResumePlayback = autoPlay
+
+        Log.d(
+            TAG,
+            "loadFromServer url=$streamSourceUrl position=$positionMs autoPlay=$autoPlay"
+        )
+
+        if (initialized) {
+            runOnPlayerThread {
+                openStream(positionMs.coerceAtLeast(0L), autoPlay)
+            }
+        }
+    }
+
+    /**
      * Accepts both old udpxy HTTP transport and new HLS master.m3u8.
      */
     fun setStreamSourceUrl(url: String) {
