@@ -49,7 +49,8 @@ data class ServerPlaybackCommand(
     val url: String? = null,
     val positionMs: Long? = null,
     val autoPlay: Boolean = false,
-    val maxHeight: Int? = null
+    val maxHeight: Int? = null,
+    val speed: Float? = null
 )
 
 class TeacherControlClient(
@@ -63,6 +64,7 @@ class TeacherControlClient(
     private val onTextMark: (mark: ServerTextMark) -> Unit,
     private val onTextMarkClear: () -> Unit,
     private val onPlaybackCommand: (command: ServerPlaybackCommand) -> Unit,
+    private val onConnectionChanged: (connected: Boolean, message: String) -> Unit,
     private val onConnectionUnavailable: (message: String) -> Unit
 ) {
     private val tag = "TeacherControlClient"
@@ -77,6 +79,8 @@ class TeacherControlClient(
 
     private var webSocket: WebSocket? = null
     private var stopped = false
+    private var connected = false
+    private var reconnectRunnable: Runnable? = null
 
     fun start() {
         stopped = false
@@ -85,11 +89,47 @@ class TeacherControlClient(
 
     fun stop() {
         stopped = true
+        reconnectRunnable?.let(mainHandler::removeCallbacks)
+        reconnectRunnable = null
+        connected = false
         try {
             webSocket?.close(1000, "stop")
         } catch (_: Throwable) {
         }
         webSocket = null
+    }
+
+    fun isConnected(): Boolean = connected
+
+    fun sendPlayerStatus(
+        clientId: String,
+        deviceName: String,
+        positionMs: Long,
+        bufferedMs: Long,
+        playing: Boolean,
+        videoHeight: Int,
+        maxHeight: Int,
+        lowCachePercent: Int,
+        speed: Float,
+        mode: String
+    ): Boolean {
+        val socket = webSocket ?: return false
+        if (!connected) return false
+
+        val root = JSONObject()
+            .put("type", "player_status")
+            .put("clientId", clientId)
+            .put("deviceName", deviceName)
+            .put("positionMs", positionMs.coerceAtLeast(0L))
+            .put("bufferedMs", bufferedMs.coerceAtLeast(0L))
+            .put("playing", playing)
+            .put("videoHeight", videoHeight.coerceAtLeast(0))
+            .put("maxHeight", maxHeight.coerceAtLeast(0))
+            .put("lowCachePercent", lowCachePercent.coerceIn(0, 100))
+            .put("speed", speed.toDouble())
+            .put("mode", mode)
+
+        return socket.send(root.toString())
     }
 
     private fun connect() {
@@ -104,12 +144,20 @@ class TeacherControlClient(
         webSocket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 Log.d(tag, "WebSocket connected")
+                connected = true
+                reconnectRunnable?.let(mainHandler::removeCallbacks)
+                reconnectRunnable = null
 
                 webSocket.send(
                     """
-                    {"type":"android_hello","client":"vrvideoplayer","supports":["yaw_pitch","xyz","video_mode","text-mark","hls","abr","cache","play","pause","seek","quality_limit"]}
+                    {"type":"android_hello","client":"vrvideoplayer","supports":["yaw_pitch","xyz","video_mode","text-mark","hls","abr","cache","play","pause","seek","quality_limit","speed","stop","player_status","state_request"]}
                     """.trimIndent()
                 )
+                webSocket.send("""{"type":"state_request"}""")
+
+                mainHandler.post {
+                    onConnectionChanged(true, "Подключено к преподавателю")
+                }
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
@@ -118,9 +166,11 @@ class TeacherControlClient(
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                connected = false
                 Log.e(tag, "WebSocket failure: ${t.message}", t)
                 val failureDetails = buildFailureDetails(t, response)
                 mainHandler.post {
+                    onConnectionChanged(false, "Нет связи с сервером")
                     onConnectionUnavailable(
                         "Не удалось подключиться к адресу управления:\n$wsUrl\n\n$failureDetails"
                     )
@@ -129,18 +179,25 @@ class TeacherControlClient(
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                connected = false
                 Log.d(tag, "WebSocket closed: $code $reason")
+                mainHandler.post {
+                    onConnectionChanged(false, "Соединение потеряно, переподключение…")
+                }
                 reconnectLater()
             }
         })
     }
 
     private fun reconnectLater() {
-        if (stopped) return
+        if (stopped || reconnectRunnable != null) return
 
-        mainHandler.postDelayed({
+        val runnable = Runnable {
+            reconnectRunnable = null
             if (!stopped) connect()
-        }, 2000)
+        }
+        reconnectRunnable = runnable
+        mainHandler.postDelayed(runnable, 2000)
     }
 
     private fun buildFailureDetails(t: Throwable, response: Response?): String {
@@ -294,6 +351,29 @@ class TeacherControlClient(
                         maxHeight = maxHeight
                     )
                 )
+                return true
+            }
+
+            "speed",
+            "playback_speed" -> {
+                val speed = when {
+                    root.has("speed") -> root.optDouble("speed", 1.0)
+                    root.has("rate") -> root.optDouble("rate", 1.0)
+                    else -> 1.0
+                }.toFloat().coerceIn(0.25f, 4.0f)
+
+                postPlaybackCommand(
+                    ServerPlaybackCommand(
+                        type = "speed",
+                        speed = speed
+                    )
+                )
+                return true
+            }
+
+            "stop",
+            "stop_playback" -> {
+                postPlaybackCommand(ServerPlaybackCommand(type = "stop"))
                 return true
             }
         }
