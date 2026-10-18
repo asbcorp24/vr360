@@ -26,10 +26,6 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
-    <!-- Нужно для multicast по Wi-Fi -->
-    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
-    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
-
     <!-- Cardboard может использовать камеру для QR-кода профиля устройства -->
     <uses-permission android:name="android.permission.CAMERA" />
 
