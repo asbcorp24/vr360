@@ -247,14 +247,9 @@ class MainActivity : AppCompatActivity(),
         )
         Log.d(
             TAG,
-            "360 display mode is Mono + Equirect360 + CardboardStereo; 180 stereo is enabled only by explicit video_mode command"
+            "360 player started; outputMode=$outputMode, video geometry follows server commands"
         )
     }
-
-    private data class ReachabilityTarget(
-        val host: String,
-        val port: Int
-    )
 
     private fun loadSavedControlServerEndpoint(): String {
         val saved = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -272,25 +267,43 @@ class MainActivity : AppCompatActivity(),
             .apply()
     }
 
-    private fun loadSavedVideoStreamUrl(): String {
-        val saved = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .getString(KEY_VIDEO_STREAM_URL, DEFAULT_VIDEO_STREAM_URL)
+    private fun loadSavedDisplayMode(): OutputMode {
+        val value = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getString(KEY_DISPLAY_MODE, "phone")
             ?.trim()
+            ?.lowercase()
             .orEmpty()
 
-        val normalized = normalizeVideoStreamUrl(saved).ifBlank { DEFAULT_VIDEO_STREAM_URL }
-        return if (normalized == "http://192.168.5.1:4022/udp/239.0.0.1:5004") {
-            DEFAULT_VIDEO_STREAM_URL
+        return if (value == "cardboard") {
+            OutputMode.CardboardStereo
         } else {
-            normalized
+            OutputMode.MonoLeft
         }
     }
 
-    private fun saveVideoStreamUrl(url: String) {
+    private fun saveDisplayMode() {
+        val value =
+            if (outputMode == OutputMode.CardboardStereo) "cardboard" else "phone"
+
         getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
-            .putString(KEY_VIDEO_STREAM_URL, url)
+            .putString(KEY_DISPLAY_MODE, value)
             .apply()
+    }
+
+    private fun loadOrCreateClientId(): String {
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val saved = prefs.getString(KEY_CLIENT_ID, "")?.trim().orEmpty()
+        if (saved.isNotBlank()) return saved
+
+        val created = "VR-" +
+            UUID.randomUUID().toString()
+                .replace("-", "")
+                .take(6)
+                .uppercase()
+
+        prefs.edit().putString(KEY_CLIENT_ID, created).apply()
+        return created
     }
 
     private fun normalizeControlServerEndpoint(raw: String): String {
@@ -336,65 +349,9 @@ class MainActivity : AppCompatActivity(),
         return "ws://$host:8071/vr-view-ws"
     }
 
-    private fun parseReachabilityTarget(wsUrl: String): ReachabilityTarget? {
-        return try {
-            val uri = URI(wsUrl)
-            val host = uri.host?.trim().orEmpty()
-            if (host.isBlank()) return null
-
-            val port = when {
-                uri.port > 0 -> uri.port
-                uri.scheme.equals("wss", ignoreCase = true) -> 443
-                else -> 80
-            }
-
-            ReachabilityTarget(host, port)
-        } catch (e: Exception) {
-            Log.e(TAG, "Bad control WS URL: $wsUrl", e)
-            null
-        }
-    }
-
     private fun startTeacherControlWithReachabilityCheck() {
-        val wsUrl = buildTeacherControlWsUrl()
-        val target = parseReachabilityTarget(wsUrl)
-
-        if (target == null) {
-            showControlServerIpDialog("Некорректный адрес сервера управления:\n$wsUrl")
-            return
-        }
-
-        Thread {
-            var socket: Socket? = null
-            val ipToCheck = target.host
-            val portToCheck = target.port
-            try {
-                Log.d(TAG, "Checking control server ${target.host}:${target.port} for $wsUrl")
-                socket = Socket()
-                socket.connect(InetSocketAddress(target.host, target.port), 2500)
-                Log.d(TAG, "Control server reachable: ${target.host}:${target.port}")
-
-                runOnUiThread {
-                    connectTeacherControlClient()
-                }
-            } catch (e: Throwable) {
-                Log.e(TAG, "Control server is not reachable: ${target.host}:${target.port}", e)
-
-                runOnUiThread {
-                    showControlServerIpDialog(
-                        "Не удалось подключиться к компьютеру управления:\n$ipToCheck:$portToCheck"
-                    )
-                }
-            } finally {
-                try {
-                    socket?.close()
-                } catch (_: Throwable) {
-                }
-            }
-        }.apply {
-            name = "vr-control-server-check"
-            start()
-        }
+        binding.playerStatusText.text = "Подключение к $controlServerEndpoint…"
+        connectTeacherControlClient()
     }
 
     private fun connectTeacherControlClient() {
@@ -431,8 +388,14 @@ class MainActivity : AppCompatActivity(),
             onPlaybackCommand = { command ->
                 handlePlaybackCommand(command)
             },
+            onConnectionChanged = { connected, message ->
+                controlConnected = connected
+                binding.playerStatusText.text = message
+            },
             onConnectionUnavailable = {
-                showControlServerIpDialog(it)
+                controlConnected = false
+                Log.w(TAG, it)
+                binding.playerStatusText.text = "Нет связи · автоподключение…"
             }
         )
 
@@ -448,17 +411,10 @@ class MainActivity : AppCompatActivity(),
 
         val wsEditText = EditText(this).apply {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
-            hint = "ws://192.168.1.104:8071/vr-view-ws"
+            hint = "192.168.1.106"
             setSingleLine(true)
             setText(controlServerEndpoint)
             selectAll()
-        }
-
-        val streamEditText = EditText(this).apply {
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
-            hint = "http://192.168.10.1:7088/udp/239.0.0.1:5004"
-            setSingleLine(true)
-            setText(videoStreamUrl)
         }
 
         val container = LinearLayout(this).apply {
@@ -466,65 +422,44 @@ class MainActivity : AppCompatActivity(),
             val padding = (24 * resources.displayMetrics.density).toInt()
             setPadding(padding, 8, padding, 0)
             addView(wsEditText)
-            addView(streamEditText)
         }
 
-        val dismissHandler = Handler(Looper.getMainLooper())
-        var dialog: AlertDialog? = null
-        val autoDismiss = Runnable {
-            dialog?.dismiss()
-        }
-
-        dialog = AlertDialog.Builder(this)
-            .setTitle("Адрес компьютера управления")
+        AlertDialog.Builder(this)
+            .setTitle("Сервер преподавателя")
             .setMessage(
                 "$message\n\n" +
-                    "Верхнее поле: адрес WS-сервера управления.\n" +
-                    "Нижнее поле: HLS master.m3u8 или старый HTTP-поток udpxy/msd_lite."
+                    "Укажи IP компьютера с mpegts_server. " +
+                    "Видео HLS приложение получит автоматически по WebSocket."
             )
             .setView(container)
             .setPositiveButton("Сохранить") { _, _ ->
-                dismissHandler.removeCallbacks(autoDismiss)
-                val newEndpoint = normalizeControlServerEndpoint(wsEditText.text?.toString().orEmpty())
-                val newStreamUrl = normalizeVideoStreamUrl(streamEditText.text?.toString().orEmpty())
+                val newEndpoint =
+                    normalizeControlServerEndpoint(wsEditText.text?.toString().orEmpty())
                 serverIpDialogShown = false
 
                 if (newEndpoint.isBlank()) {
-                    showControlServerIpDialog("IP адрес пустой. Введите адрес компьютера управления.")
-                    return@setPositiveButton
-                }
-
-                if (newStreamUrl.isBlank()) {
-                    showControlServerIpDialog("HTTP адрес видеопотока пустой. Введите URL потока от udpxy или msd_lite.")
+                    binding.playerStatusText.text = "Не задан адрес сервера"
                     return@setPositiveButton
                 }
 
                 controlServerEndpoint = newEndpoint
-                videoStreamUrl = newStreamUrl
                 saveControlServerEndpoint(newEndpoint)
-                saveVideoStreamUrl(newStreamUrl)
-                videoTexturePlayer.setStreamSourceUrl(newStreamUrl)
-                Log.d(TAG, "Saved control server endpoint: $controlServerEndpoint")
-                Log.d(TAG, "Saved video stream URL: $videoStreamUrl")
+                controlConnected = false
+                binding.playerStatusText.text = "Подключение к $newEndpoint…"
                 startTeacherControlWithReachabilityCheck()
             }
             .setNegativeButton("Отмена") { _, _ ->
-                dismissHandler.removeCallbacks(autoDismiss)
                 serverIpDialogShown = false
             }
             .setOnDismissListener {
-                dismissHandler.removeCallbacks(autoDismiss)
                 serverIpDialogShown = false
             }
             .show()
-
-        dismissHandler.postDelayed(autoDismiss, CONTROL_SERVER_DIALOG_TIMEOUT_MS)
     }
 
     private fun applyStartDisplayModeDirect() {
         inputLayout = InputLayout.Mono
         inputMode = InputMode.Equirect360
-        outputMode = OutputMode.CardboardStereo
 
         if (nativeApp != 0L) {
             NativeLibrary.nativeSetOptions(
@@ -533,33 +468,40 @@ class MainActivity : AppCompatActivity(),
                 inputMode.ordinal,
                 outputMode.ordinal
             )
-
-            Log.d(TAG, "FORCE START MODE DIRECT: $inputLayout $inputMode $outputMode")
         }
     }
 
     private fun applyStartDisplayModeOnGlThread() {
-        inputLayout = InputLayout.Mono
-        inputMode = InputMode.Equirect360
-        outputMode = OutputMode.CardboardStereo
+        if (!::glView.isInitialized) return
+        setNativeOptionsOnGlThread()
+    }
 
-        if (!::glView.isInitialized) {
-            Log.w(TAG, "applyStartDisplayModeOnGlThread ignored: glView not initialized")
-            return
-        }
+    private fun setDisplayMode(cardboard: Boolean) {
+        outputMode =
+            if (cardboard) OutputMode.CardboardStereo else OutputMode.MonoLeft
 
-        glView.queueEvent {
-            if (nativeApp != 0L) {
-                NativeLibrary.nativeSetOptions(
-                    nativeApp,
-                    inputLayout.ordinal,
-                    inputMode.ordinal,
-                    outputMode.ordinal
-                )
+        saveDisplayMode()
+        updateModeButtons()
+        setNativeOptionsOnGlThread()
+        binding.playerStatusText.text =
+            if (cardboard) "Режим Cardboard" else "Режим телефона"
+    }
 
-                Log.d(TAG, "FORCE START MODE ON GL: $inputLayout $inputMode $outputMode")
-            }
-        }
+    private fun updateModeButtons() {
+        val cardboard = outputMode == OutputMode.CardboardStereo
+        binding.btnPhoneMode.alpha = if (cardboard) 0.55f else 1.0f
+        binding.btnCardboardMode.alpha = if (cardboard) 1.0f else 0.55f
+    }
+
+    private fun applyPhoneRotation() {
+        if (nativeApp == 0L || outputMode == OutputMode.CardboardStereo) return
+
+        NativeLibrary.nativeSetManualRotation(
+            nativeApp,
+            sensorYaw + touchYawOffset,
+            (sensorPitch + touchPitchOffset).coerceIn(-1.45f, 1.45f),
+            sensorRoll
+        )
     }
 
     fun closePlayer(view: View) {
@@ -662,9 +604,6 @@ class MainActivity : AppCompatActivity(),
                     return
                 }
 
-                videoStreamUrl = url
-                saveVideoStreamUrl(url)
-
                 videoTexturePlayer.loadFromServer(
                     url = url,
                     positionMs = command.positionMs ?: 0L,
@@ -693,6 +632,15 @@ class MainActivity : AppCompatActivity(),
 
             "quality_limit" -> {
                 videoTexturePlayer.setMaxVideoHeight(command.maxHeight ?: 0)
+            }
+
+            "speed" -> {
+                videoTexturePlayer.setPlaybackSpeed(command.speed ?: 1.0f)
+            }
+
+            "stop" -> {
+                videoTexturePlayer.stopFromServer()
+                binding.playerStatusText.text = "Ожидание следующего видео"
             }
 
             else -> {
@@ -781,11 +729,8 @@ class MainActivity : AppCompatActivity(),
          * но приложение на смартфоне должно оставаться в Cardboard-режиме.
          * Иначе после команды video_mode можно случайно уйти в MonoLeft/MonoRight.
          */
-        val effectiveOutputMode = if (FORCE_CARDBOARD_OUTPUT) {
-            OutputMode.CardboardStereo
-        } else {
-            newOutputMode
-        }
+        // Геометрию видео задаёт сервер, а Phone/Cardboard выбирает сам ученик.
+        val effectiveOutputMode = outputMode
 
         val changed =
             inputLayout != newInputLayout ||
@@ -799,7 +744,6 @@ class MainActivity : AppCompatActivity(),
 
         inputLayout = newInputLayout
         inputMode = newInputMode
-        outputMode = effectiveOutputMode
 
         Log.d(
             TAG,
@@ -1031,8 +975,7 @@ class MainActivity : AppCompatActivity(),
         glView.onResume()
         videoTexturePlayer.onResume()
 
-        // После возврата из паузы ещё раз закрепляем Cardboard-режим.
-        // Это защищает от ситуации, когда GL renderer пересоздался после pause/resume.
+        // После возврата из паузы повторно применяем выбранный Phone/Cardboard режим.
         applyCurrentDisplayModeOnGlThread("onResume")
     }
 
@@ -1053,6 +996,7 @@ class MainActivity : AppCompatActivity(),
     override fun onDestroy() {
         Log.d(TAG, "onDestroy()")
 
+        statusHandler.removeCallbacksAndMessages(null)
         teacherControlClient?.stop()
         teacherControlClient = null
 
@@ -1072,7 +1016,6 @@ class MainActivity : AppCompatActivity(),
             nativeApp = 0L
         }
 
-        releaseMulticastLock()
         super.onDestroy()
     }
 
@@ -1083,16 +1026,12 @@ class MainActivity : AppCompatActivity(),
             NativeLibrary.nativeOnVideoSizeChanged(nativeApp, width, height)
         }
 
-        // Первый кадр VLC иногда приходит уже после пересоздания GL-состояния.
-        // Поэтому на первом событии видео повторно отправляем текущий режим в native renderer.
+        // После изменения размера видео повторно применяем текущую геометрию рендера.
         applyCurrentDisplayModeOnGlThread("onVideoSizeChanged")
     }
 
     private fun applyCurrentDisplayModeOnGlThread(reason: String) {
-        if (!FORCE_CARDBOARD_OUTPUT) return
         if (nativeApp == 0L || !::glView.isInitialized) return
-
-        outputMode = OutputMode.CardboardStereo
 
         glView.queueEvent {
             if (nativeApp != 0L) {
@@ -1100,12 +1039,11 @@ class MainActivity : AppCompatActivity(),
                     nativeApp,
                     inputLayout.ordinal,
                     inputMode.ordinal,
-                    OutputMode.CardboardStereo.ordinal
+                    outputMode.ordinal
                 )
-
                 Log.d(
                     TAG,
-                    "FORCE CURRENT MODE CARDBOARD reason=$reason inputLayout=$inputLayout inputMode=$inputMode outputMode=${OutputMode.CardboardStereo}"
+                    "APPLY DISPLAY MODE reason=$reason inputLayout=$inputLayout inputMode=$inputMode outputMode=$outputMode"
                 )
             }
         }
@@ -1136,58 +1074,12 @@ class MainActivity : AppCompatActivity(),
 
         SensorManager.getOrientation(remappedRotationMatrix, orientationAngles)
 
-        var yaw = orientationAngles[0]
-        var pitch = orientationAngles[1]
-        var roll = orientationAngles[2]
+        sensorYaw = orientationAngles[0] * YAW_SENSITIVITY
+        sensorPitch =
+            (orientationAngles[1] * PITCH_SENSITIVITY).coerceIn(-1.45f, 1.45f)
+        sensorRoll = orientationAngles[2] * ROLL_SENSITIVITY
 
-        yaw *= YAW_SENSITIVITY
-        pitch *= PITCH_SENSITIVITY
-        roll *= ROLL_SENSITIVITY
-
-        pitch = pitch.coerceIn(-1.45f, 1.45f)
-
-        /*
-         * Для CardboardStereo Renderer.cpp использует CardboardHeadTracker.
-         * Это останется fallback для MonoLeft/MonoRight.
-         */
-        NativeLibrary.nativeSetManualRotation(
-            nativeApp,
-            yaw,
-            pitch,
-            roll
-        )
-    }
-
-    private fun acquireMulticastLock() {
-        try {
-            val wifiManager =
-                applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-
-            multicastLock = wifiManager.createMulticastLock("vr_multicast_lock").apply {
-                setReferenceCounted(true)
-                acquire()
-            }
-
-            Log.d(TAG, "MulticastLock acquired")
-        } catch (e: Throwable) {
-            Log.e(TAG, "MulticastLock error", e)
-        }
-    }
-
-    private fun releaseMulticastLock() {
-        try {
-            multicastLock?.let {
-                if (it.isHeld) {
-                    it.release()
-                }
-            }
-
-            Log.d(TAG, "MulticastLock released")
-        } catch (e: Throwable) {
-            Log.e(TAG, "releaseMulticastLock error", e)
-        }
-
-        multicastLock = null
+        applyPhoneRotation()
     }
 
     private fun enterImmersiveMode() {
