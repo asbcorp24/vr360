@@ -72,10 +72,10 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:5.3.2")
 
     // Adaptive HTTP video + HLS/CMAF + disk cache.
-    implementation("androidx.media3:media3-exoplayer:1.11.0")
-    implementation("androidx.media3:media3-exoplayer-hls:1.11.0")
-    implementation("androidx.media3:media3-datasource:1.11.0")
-    implementation("androidx.media3:media3-database:1.11.0")
+    implementation("androidx.media3:media3-exoplayer:1.11.1")
+    implementation("androidx.media3:media3-exoplayer-hls:1.11.1")
+    implementation("androidx.media3:media3-datasource:1.11.1")
+    implementation("androidx.media3:media3-database:1.11.1")
 
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
