@@ -15,13 +15,18 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.VideoSize
 import androidx.media3.database.StandaloneDatabaseProvider
+import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.cache.CacheDataSource
+import androidx.media3.datasource.cache.CacheWriter
 import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import java.io.File
+import java.net.URI
+import java.net.URL
+import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -49,6 +54,8 @@ class VideoTexturePlayer(
 
         @Volatile
         private var sharedDatabaseProvider: StandaloneDatabaseProvider? = null
+
+        private val precacheExecutor = Executors.newSingleThreadExecutor()
 
         private fun getCache(context: Context): SimpleCache {
             sharedCache?.let { return it }
@@ -90,6 +97,9 @@ class VideoTexturePlayer(
 
     @Volatile
     private var bufferedPositionMs = 0L
+
+    @Volatile
+    private var lowPrecachePercent = 0
 
     private var streamSourceUrl = DEFAULT_STREAM_URL
     private var initialized = false
@@ -416,6 +426,10 @@ class VideoTexturePlayer(
             "loadFromServer url=$streamSourceUrl position=$positionMs autoPlay=$autoPlay"
         )
 
+        if (isHlsUrl(normalized)) {
+            precacheLowVariant(normalized)
+        }
+
         if (initialized) {
             runOnPlayerThread {
                 openStream(positionMs.coerceAtLeast(0L), autoPlay)
@@ -438,6 +452,101 @@ class VideoTexturePlayer(
                 openStream(0L, shouldResumePlayback)
             }
         }
+    }
+
+    fun getLowPrecachePercent(): Int = lowPrecachePercent
+
+    /**
+     * Our packager always creates low/playlist.m3u8 next to master.m3u8.
+     * We preload the complete LOW variant into the same SimpleCache that ExoPlayer reads.
+     */
+    private fun precacheLowVariant(masterUrl: String) {
+        lowPrecachePercent = 0
+
+        precacheExecutor.execute {
+            try {
+                val masterUri = URI(masterUrl)
+                val lowPlaylistUrl = masterUri.resolve("low/playlist.m3u8").toString()
+
+                Log.d(TAG, "LOW precache playlist=$lowPlaylistUrl")
+
+                val connection = URL(lowPlaylistUrl).openConnection().apply {
+                    connectTimeout = 5_000
+                    readTimeout = 15_000
+                    setRequestProperty("User-Agent", "VR360-Android/2.0")
+                }
+
+                val playlistText = connection.getInputStream()
+                    .bufferedReader(Charsets.UTF_8)
+                    .use { it.readText() }
+
+                val lowBase = URI(lowPlaylistUrl)
+                val resources = LinkedHashSet<String>()
+                resources += masterUrl
+                resources += lowPlaylistUrl
+
+                Regex("""#EXT-X-MAP:.*URI="([^"]+)"""")
+                    .findAll(playlistText)
+                    .forEach { match ->
+                        resources += lowBase.resolve(match.groupValues[1]).toString()
+                    }
+
+                playlistText.lineSequence()
+                    .map { it.trim() }
+                    .filter { it.isNotEmpty() && !it.startsWith("#") }
+                    .forEach { relative ->
+                        resources += lowBase.resolve(relative).toString()
+                    }
+
+                if (resources.isEmpty()) {
+                    lowPrecachePercent = 100
+                    return@execute
+                }
+
+                resources.forEachIndexed { index, url ->
+                    cacheUrl(url)
+                    lowPrecachePercent = (((index + 1) * 100.0) / resources.size)
+                        .toInt()
+                        .coerceIn(0, 100)
+
+                    Log.d(
+                        TAG,
+                        "LOW precache $lowPrecachePercent% (" +
+                            (index + 1) + "/" + resources.size + ")"
+                    )
+                }
+
+                lowPrecachePercent = 100
+                Log.d(TAG, "LOW precache complete")
+            } catch (e: Throwable) {
+                Log.e(TAG, "LOW precache failed", e)
+            }
+        }
+    }
+
+    private fun cacheUrl(url: String) {
+        val httpFactory = DefaultHttpDataSource.Factory()
+            .setUserAgent("VR360-Android/2.0")
+            .setConnectTimeoutMs(5_000)
+            .setReadTimeoutMs(20_000)
+            .setAllowCrossProtocolRedirects(true)
+
+        val cacheDataSource = CacheDataSource.Factory()
+            .setCache(getCache(context.applicationContext))
+            .setUpstreamDataSourceFactory(httpFactory)
+            .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+            .createDataSource()
+
+        val dataSpec = DataSpec.Builder()
+            .setUri(Uri.parse(url))
+            .build()
+
+        CacheWriter(
+            cacheDataSource,
+            dataSpec,
+            null,
+            null
+        ).cache()
     }
 
     private fun scheduleStreamReconnect(reason: String) {
