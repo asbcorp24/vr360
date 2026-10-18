@@ -19,7 +19,6 @@ import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.CacheWriter
-import androidx.media3.datasource.cache.CacheUtil
 import androidx.media3.datasource.cache.NoOpCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
 import androidx.media3.exoplayer.ExoPlayer
@@ -849,7 +848,7 @@ class VideoTexturePlayer(
             for (key in orphanKeys) {
                 if (!stillNeedsSpace()) break
                 freed += cachedBytesForKey(key)
-                CacheUtil.remove(cache, key)
+                removeCacheKey(cache, key)
             }
 
             if (freed > 0L) {
@@ -865,10 +864,21 @@ class VideoTexturePlayer(
 
         for (key in keys) {
             freed += cachedBytesForKey(key)
-            CacheUtil.remove(cache, key)
+            removeCacheKey(cache, key)
         }
 
         return freed
+    }
+
+    private fun removeCacheKey(cache: SimpleCache, key: String) {
+        val spans = cache.getCachedSpans(key).toList()
+        for (span in spans) {
+            try {
+                cache.removeSpan(span)
+            } catch (e: Throwable) {
+                Log.w(TAG, "Cannot remove cache span key=$key file=${span.file}", e)
+            }
+        }
     }
 
     private fun cachedBytesForPrefix(prefix: String): Long {
