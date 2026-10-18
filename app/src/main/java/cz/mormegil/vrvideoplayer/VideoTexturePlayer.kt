@@ -3,440 +3,470 @@ package cz.mormegil.vrvideoplayer
 import android.content.Context
 import android.graphics.SurfaceTexture
 import android.graphics.SurfaceTexture.OnFrameAvailableListener
-import android.media.MediaPlayer.OnVideoSizeChangedListener
+import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.view.Surface
-import org.videolan.libvlc.LibVLC
-import org.videolan.libvlc.Media
-import org.videolan.libvlc.MediaPlayer
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.common.VideoSize
+import androidx.media3.database.StandaloneDatabaseProvider
+import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.cache.CacheDataSource
+import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
+import androidx.media3.datasource.cache.SimpleCache
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * VideoTexturePlayer — видеоплеер, который принимает MPEG-TS поток через udpxy HTTP.
+ * Media3/ExoPlayer transport for the existing OpenGL/Cardboard renderer.
  *
- * Раньше Android сам слушал multicast udp://@239.0.0.1:5004.
- * Теперь multicast принимает роутер, а телефон получает обычный HTTP unicast:
- * http://192.168.10.1:7088/udp/239.0.0.1:5004
- *
- * Видео выводится в SurfaceTexture, а аудио воспроизводится штатным audio output LibVLC.
- * SurfaceTexture привязана к OpenGL-текстуре texName.
- * Потом C++ Renderer использует эту текстуру для отображения 360°/VR-видео.
+ * Supports HLS/CMAF adaptive bitrate, disk cache and the old HTTP MPEG-TS
+ * stream during migration. Decoded frames still go through SurfaceTexture
+ * into the existing C++ Renderer.cpp.
  */
 class VideoTexturePlayer(
-    // Android Context нужен для LibVLC.
     private val context: Context,
-
-    // Listener, которому сообщаем размер видео.
-    // В MainActivity это onVideoSizeChanged().
-    private val videoSizeChangedListener: OnVideoSizeChangedListener
+    private val videoSizeChangedListener: MediaPlayer.OnVideoSizeChangedListener
 ) : OnFrameAvailableListener {
 
     companion object {
-        private const val TAG = "VlcTexturePlayer"
+        private const val TAG = "Media3TexturePlayer"
+        private const val DEFAULT_STREAM_URL =
+            "http://192.168.10.1:7088/udp/239.0.0.1:5004"
+        private const val FALLBACK_WIDTH = 2048
+        private const val FALLBACK_HEIGHT = 1024
+        private const val CACHE_SIZE_BYTES = 6L * 1024L * 1024L * 1024L
 
-        /**
-         * HTTP-поток от udpxy на роутере.
-         *
-         * Роутер принимает multicast:
-         *   udp://239.0.0.1:5004
-         *
-         * Android получает HTTP:
-         *   http://192.168.10.1:7088/udp/239.0.0.1:5004
-         */
-        private const val UDPXY_HTTP_URL = "http://192.168.10.1:7088/udp/239.0.0.1:5004"
+        @Volatile
+        private var sharedCache: SimpleCache? = null
 
-        /**
-         * Размер буфера SurfaceTexture.
-         *
-         * Это не обязательно реальное разрешение входного видео.
-         * Это размер, который SurfaceTexture сообщает декодеру/VLC.
-         */
-        private const val VIDEO_WIDTH = 2048
-        private const val VIDEO_HEIGHT = 1024
+        @Volatile
+        private var sharedDatabaseProvider: StandaloneDatabaseProvider? = null
+
+        private fun getCache(context: Context): SimpleCache {
+            sharedCache?.let { return it }
+
+            synchronized(this) {
+                sharedCache?.let { return it }
+
+                val appContext = context.applicationContext
+                val databaseProvider =
+                    sharedDatabaseProvider ?: StandaloneDatabaseProvider(appContext).also {
+                        sharedDatabaseProvider = it
+                    }
+
+                val cache = SimpleCache(
+                    File(appContext.cacheDir, "vr360-media3-cache"),
+                    LeastRecentlyUsedCacheEvictor(CACHE_SIZE_BYTES),
+                    databaseProvider
+                )
+
+                sharedCache = cache
+                return cache
+            }
+        }
     }
 
-    // SurfaceTexture привязана к OpenGL texture id.
-    private var surfaceTexture: SurfaceTexture? = null
-
-    // Surface создаётся поверх SurfaceTexture.
-    // LibVLC выводит декодированное видео именно сюда.
-    private var surface: Surface? = null
-
-    // Главный объект LibVLC.
-    private var libVlc: LibVLC? = null
-
-    // VLC MediaPlayer, который открывает HTTP MPEG-TS поток от udpxy.
-    private var vlcPlayer: MediaPlayer? = null
-
-    /**
-     * Флаг: появился новый кадр.
-     *
-     * onFrameAvailable() вызывается Android'ом,
-     * когда в SurfaceTexture пришёл новый кадр.
-     *
-     * Потом в OpenGL-потоке вызывается updateIfNeeded(),
-     * который делает surfaceTexture.updateTexImage().
-     */
-    private val frameAvailable = AtomicBoolean(false)
     private val mainHandler = Handler(Looper.getMainLooper())
+
+    private var surfaceTexture: SurfaceTexture? = null
+    private var surface: Surface? = null
+    private var player: ExoPlayer? = null
+
+    private val frameAvailable = AtomicBoolean(false)
+
+    @Volatile
+    private var normalizedVideoPosition = 0.0f
+
+    @Volatile
+    private var currentPositionMs = 0L
+
+    @Volatile
+    private var bufferedPositionMs = 0L
+
+    private var streamSourceUrl = DEFAULT_STREAM_URL
+    private var initialized = false
+    private var shouldResumePlayback = true
     private var reconnectRunnable: Runnable? = null
 
-    /**
-     * Текущая позиция видео.
-     *
-     * Для live-потока перемотки нет, поэтому всегда 0.
-     */
-    private var videoPosition: Float = 0.0f
-    private var streamSourceUrl: String = UDPXY_HTTP_URL
+    private val positionUpdateRunnable = object : Runnable {
+        override fun run() {
+            val p = player
+            if (p != null) {
+                try {
+                    currentPositionMs = p.currentPosition.coerceAtLeast(0L)
+                    bufferedPositionMs = p.bufferedPosition.coerceAtLeast(0L)
+
+                    val durationMs = p.duration
+                    normalizedVideoPosition =
+                        if (durationMs > 0L) {
+                            (currentPositionMs.toDouble() / durationMs.toDouble())
+                                .coerceIn(0.0, 1.0)
+                                .toFloat()
+                        } else {
+                            0.0f
+                        }
+                } catch (e: Throwable) {
+                    Log.w(TAG, "position update failed", e)
+                }
+            }
+
+            if (initialized) {
+                mainHandler.postDelayed(this, 250L)
+            }
+        }
+    }
 
     /**
-     * Флаг: плеер уже инициализирован.
-     *
-     * Нужен, чтобы onResume() понимал, можно ли снова вызвать play().
-     */
-    private var initialized = false
-
-    /**
-     * Инициализация воспроизведения.
-     *
-     * texName — OpenGL texture id, созданный в C++.
-     * SurfaceTexture будет писать видеокадры прямо в эту OpenGL-текстуру.
+     * Called from Renderer.cpp on GLSurfaceView's GL thread.
      */
     fun initializePlayback(texName: Int) {
         Log.d(TAG, "initializePlayback texName=$texName")
 
-        // Сначала очищаем старый VLC, Surface и SurfaceTexture.
-        cleanup()
-
-        // Через udpxy телефон НЕ принимает multicast напрямую.
-        // MulticastLock и UDP probe больше не нужны.
-        Log.d(TAG, "Using HTTP stream source, multicast lock/probe skipped")
-
         initialized = true
-
-        /**
-         * Создаём SurfaceTexture на базе OpenGL texture id.
-         *
-         * texName приходит из C++ рендера.
-         */
-        val texture = SurfaceTexture(texName)
-
-        // Задаём размер буфера.
-        texture.setDefaultBufferSize(VIDEO_WIDTH, VIDEO_HEIGHT)
-
-        surfaceTexture = texture
-
-        // Подписываемся на событие прихода нового кадра.
-        texture.setOnFrameAvailableListener(this)
-
-        /**
-         * Создаём Surface для VLC.
-         *
-         * VLC будет декодировать HTTP MPEG-TS и выводить кадры в этот Surface.
-         */
-        val videoSurface = Surface(texture)
-        surface = videoSurface
-
-        /**
-         * Опции LibVLC.
-         */
-        val vlcOptions = arrayListOf(
-            "--verbose=2",
-
-            // Использовать IPv4.
-            "--ipv4",
-
-            // Звук НЕ отключаем. VLC сам возьмёт аудио из MPEG-TS потока,
-            // если сервер кладёт audio track внутрь этого же потока.
-            "--aout=opensles",
-
-            // Не показывать название видео поверх картинки.
-            "--no-video-title-show",
-
-            // Буферы для live-сети.
-            "--network-caching=300",
-            "--live-caching=300",
-
-            // Минимизируем коррекцию времени VLC.
-            "--clock-jitter=0",
-            "--clock-synchro=0",
-
-            // Аппаратное декодирование. Для 360/4K на телефоне обычно нужно именно оно.
-            "--avcodec-hw=any"
-        )
-
-        // Создаём LibVLC.
-        val vlc = LibVLC(context.applicationContext, vlcOptions)
-        libVlc = vlc
-
-        // Создаём VLC MediaPlayer.
-        val player = MediaPlayer(vlc)
-        vlcPlayer = player
-
-        /**
-         * Слушатель событий VLC.
-         *
-         * Полезен для диагностики:
-         * Opening, Buffering, Playing, Error и т.д.
-         */
-        player.setEventListener { event ->
-            when (event.type) {
-                MediaPlayer.Event.Opening -> Log.d(TAG, "VLC Opening")
-
-                MediaPlayer.Event.Buffering ->
-                    Log.d(TAG, "VLC Buffering ${event.buffering}")
-
-                MediaPlayer.Event.Playing -> {
-                    Log.d(TAG, "VLC Playing")
-
-                    /**
-                     * Сообщаем MainActivity/C++ рендереру размер видео.
-                     *
-                     * Сейчас передаётся фиксированный размер VIDEO_WIDTH/VIDEO_HEIGHT,
-                     * а не реальный размер из потока.
-                     */
-                    videoSizeChangedListener.onVideoSizeChanged(
-                        null,
-                        VIDEO_WIDTH,
-                        VIDEO_HEIGHT
-                    )
-                }
-
-                MediaPlayer.Event.Paused -> Log.d(TAG, "VLC Paused")
-                MediaPlayer.Event.Stopped -> Log.d(TAG, "VLC Stopped")
-                MediaPlayer.Event.EndReached -> {
-                    Log.w(TAG, "VLC EndReached")
-                    scheduleStreamReconnect("end reached")
-                }
-                MediaPlayer.Event.EncounteredError -> {
-                    Log.e(TAG, "VLC EncounteredError")
-                    scheduleStreamReconnect("decoder/stream error")
-                }
-
-                else -> Log.d(TAG, "VLC event=${event.type}")
-            }
-        }
-
-        /**
-         * Привязываем Surface к VLC video output.
-         */
-        player.vlcVout.setVideoSurface(videoSurface, null)
-
-        // Сообщаем VLC размер окна.
-        player.vlcVout.setWindowSize(VIDEO_WIDTH, VIDEO_HEIGHT)
-
-        // Активируем video output.
-        player.vlcVout.attachViews()
-
-        /**
-         * Теперь открываем MPEG-TS поток через udpxy.
-         *
-         * Роутер принимает multicast UDP:
-         *   udp://239.0.0.1:5004
-         *
-         * А Android получает обычный HTTP:
-         *   http://192.168.5.1:4022/udp/239.0.0.1:5004
-         */
-        openStream(player, vlc)
-    }
-
-    /**
-     * Перемотка в начало.
-     *
-     * Для live-потока это невозможно,
-     * поэтому функция просто логирует вызов.
-     */
-    fun rewind() {
-        Log.d(TAG, "rewind ignored: live HTTP udpxy stream")
-    }
-
-    /**
-     * Перемотка вперёд/назад.
-     *
-     * Для live-потока это невозможно.
-     */
-    fun seek(relSeek: Int) {
-        Log.d(TAG, "seek ignored: live HTTP udpxy stream relSeek=$relSeek")
-    }
-
-    /**
-     * Возвращает позицию видео.
-     *
-     * Для live-потока всегда 0.
-     */
-    fun getVideoPosition(): Float = videoPosition
-
-    /**
-     * Обновить OpenGL-текстуру, если пришёл новый кадр.
-     *
-     * Это должно вызываться из GL-потока перед отрисовкой кадра.
-     */
-    fun updateIfNeeded() {
-        if (frameAvailable.getAndSet(false)) {
-            try {
-                /**
-                 * Забираем последний кадр из SurfaceTexture
-                 * и обновляем связанную OpenGL-текстуру.
-                 */
-                surfaceTexture?.updateTexImage()
-            } catch (e: Throwable) {
-                Log.e(TAG, "updateTexImage error", e)
-            }
-        }
-    }
-
-    /**
-     * Callback от SurfaceTexture.
-     *
-     * Android вызывает его, когда VLC положил новый видеокадр в Surface.
-     */
-    override fun onFrameAvailable(tex: SurfaceTexture?) {
-        frameAvailable.set(true)
-
-        // Для live-потока позиции нет.
-        videoPosition = 0.0f
-
-        // Не логируем каждый кадр, иначе Logcat сам может создавать тормоза.
-        // Log.d(TAG, "FRAME AVAILABLE")
-    }
-
-    /**
-     * Activity ушла в паузу.
-     *
-     * Останавливаем VLC.
-     */
-    fun onPause() {
-        try {
-            Log.d(TAG, "onPause")
-            cancelPendingReconnect()
-            vlcPlayer?.stop()
-        } catch (e: Throwable) {
-            Log.e(TAG, "onPause error", e)
-        }
-    }
-
-    /**
-     * Activity вернулась.
-     *
-     * Если плеер уже был инициализирован — снова запускаем VLC.
-     */
-    fun onResume() {
-        try {
-            Log.d(TAG, "onResume initialized=$initialized")
-            if (initialized) {
-                cancelPendingReconnect()
-                vlcPlayer?.play()
-            }
-        } catch (e: Throwable) {
-            Log.e(TAG, "onResume error", e)
-        }
-    }
-
-    /**
-     * Полное уничтожение плеера.
-     */
-    fun onDestroy() {
-        Log.d(TAG, "onDestroy")
-        cleanup()
-    }
-
-    fun setStreamSourceUrl(url: String) {
-        val normalized = normalizeHttpStreamUrl(url)
-        if (normalized == streamSourceUrl) {
-            return
-        }
-
-        streamSourceUrl = normalized
-        Log.d(TAG, "Updated HTTP stream source: $streamSourceUrl")
-
-        if (initialized) {
-            cancelPendingReconnect()
-            reconnectStream("stream source changed")
-        }
-    }
-
-    /**
-     * Освободить все ресурсы.
-     *
-     * Важно:
-     * - остановить VLC;
-     * - detachViews;
-     * - release MediaPlayer;
-     * - release LibVLC;
-     * - release Surface;
-     * - release SurfaceTexture.
-     */
-    private fun cleanup() {
-        cancelPendingReconnect()
-
-        try {
-            vlcPlayer?.setEventListener(null)
-            vlcPlayer?.stop()
-            vlcPlayer?.vlcVout?.detachViews()
-            vlcPlayer?.release()
-        } catch (e: Throwable) {
-            Log.e(TAG, "VLC cleanup error", e)
-        }
-
-        vlcPlayer = null
-
-        try {
-            libVlc?.release()
-        } catch (e: Throwable) {
-            Log.e(TAG, "LibVLC release error", e)
-        }
-
-        libVlc = null
+        frameAvailable.set(false)
 
         try {
             surface?.release()
         } catch (_: Throwable) {
         }
 
-        surface = null
-
         try {
             surfaceTexture?.release()
         } catch (_: Throwable) {
         }
 
-        surfaceTexture = null
+        val texture = SurfaceTexture(texName)
+        texture.setDefaultBufferSize(FALLBACK_WIDTH, FALLBACK_HEIGHT)
+        texture.setOnFrameAvailableListener(this)
+
+        val videoSurface = Surface(texture)
+        surfaceTexture = texture
+        surface = videoSurface
+
+        mainHandler.removeCallbacks(positionUpdateRunnable)
+        mainHandler.post {
+            buildPlayerAndOpen(videoSurface)
+            mainHandler.post(positionUpdateRunnable)
+        }
     }
 
-    private fun openStream(player: MediaPlayer, vlc: LibVLC) {
-        val mediaPath = streamSourceUrl
+    private fun buildPlayerAndOpen(videoSurface: Surface) {
+        if (!initialized) return
 
-        Log.d(TAG, "Opening HTTP MPEG-TS stream: $mediaPath")
+        releasePlayerInternal()
 
-        val media = Media(vlc, Uri.parse(mediaPath))
+        val appContext = context.applicationContext
+        val httpFactory = DefaultHttpDataSource.Factory()
+            .setUserAgent("VR360-Android/2.0")
+            .setConnectTimeoutMs(5_000)
+            .setReadTimeoutMs(15_000)
+            .setAllowCrossProtocolRedirects(true)
 
-        // Внутри HTTP всё равно MPEG-TS, поэтому явно указываем TS demux.
-        media.addOption(":demux=ts")
+        val cacheFactory = CacheDataSource.Factory()
+            .setCache(getCache(appContext))
+            .setUpstreamDataSourceFactory(httpFactory)
+            .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
 
-        // Дублируем cache-настройки на уровне Media.
-        media.addOption(":network-caching=300")
-        media.addOption(":live-caching=300")
-        media.addOption(":clock-jitter=0")
-        media.addOption(":clock-synchro=0")
+        val mediaSourceFactory = DefaultMediaSourceFactory(appContext)
+            .setDataSourceFactory(cacheFactory)
 
-        // Звук не отключаем: для MPEG-TS VLC должен сам найти audio track.
-        // ВАЖНО: если сервер запускается с -an или отправляет аудио отдельным портом,
-        // звука здесь не будет — аудио должно быть внутри этого же MPEG-TS потока.
-        player.media = media
-        media.release()
+        val exo = ExoPlayer.Builder(appContext)
+            .setMediaSourceFactory(mediaSourceFactory)
+            .build()
 
-        val result = player.play()
-        Log.d(TAG, "VLC play() result=$result")
+        exo.addListener(object : Player.Listener {
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                when (playbackState) {
+                    Player.STATE_BUFFERING ->
+                        Log.d(TAG, "BUFFERING pos=" + exo.currentPosition + " buffered=" + exo.bufferedPosition)
+
+                    Player.STATE_READY -> {
+                        cancelPendingReconnect()
+                        Log.d(TAG, "READY hls=" + isHlsUrl(streamSourceUrl) + " duration=" + exo.duration)
+                    }
+
+                    Player.STATE_ENDED -> {
+                        Log.d(TAG, "ENDED")
+                        if (!isHlsUrl(streamSourceUrl)) {
+                            scheduleStreamReconnect("legacy stream ended")
+                        }
+                    }
+
+                    Player.STATE_IDLE -> Log.d(TAG, "IDLE")
+                }
+            }
+
+            override fun onPlayerError(error: PlaybackException) {
+                Log.e(
+                    TAG,
+                    "Player error code=" + error.errorCode + " message=" + error.message,
+                    error
+                )
+                scheduleStreamReconnect("player error " + error.errorCode)
+            }
+
+            override fun onVideoSizeChanged(videoSize: VideoSize) {
+                if (videoSize.width <= 0 || videoSize.height <= 0) return
+
+                Log.d(TAG, "video size=" + videoSize.width + "x" + videoSize.height)
+                videoSizeChangedListener.onVideoSizeChanged(
+                    null,
+                    videoSize.width,
+                    videoSize.height
+                )
+            }
+
+            override fun onRenderedFirstFrame() {
+                Log.d(TAG, "first frame rendered")
+            }
+        })
+
+        exo.setVideoSurface(videoSurface)
+        player = exo
+
+        openStream(0L, shouldResumePlayback)
+    }
+
+    private fun createMediaItem(url: String): MediaItem {
+        val builder = MediaItem.Builder().setUri(Uri.parse(url))
+
+        when {
+            isHlsUrl(url) -> builder.setMimeType(MimeTypes.APPLICATION_M3U8)
+            isLegacyTransportStreamUrl(url) -> builder.setMimeType(MimeTypes.VIDEO_MP2T)
+        }
+
+        return builder.build()
+    }
+
+    private fun openStream(startPositionMs: Long, autoPlay: Boolean) {
+        val p = player ?: return
+        val url = streamSourceUrl.trim()
+
+        if (url.isBlank()) {
+            Log.e(TAG, "openStream ignored: empty URL")
+            return
+        }
+
+        cancelPendingReconnect()
+
+        Log.d(
+            TAG,
+            "Opening " + if (isHlsUrl(url)) "HLS ABR: $url" else "HTTP TS/progressive: $url"
+        )
+
+        p.setMediaItem(createMediaItem(url), startPositionMs.coerceAtLeast(0L))
+        p.prepare()
+        p.playWhenReady = autoPlay
+    }
+
+    fun rewind() {
+        seekTo(0L)
+    }
+
+    fun seek(relSeek: Int) {
+        runOnPlayerThread {
+            val p = player ?: return@runOnPlayerThread
+            val target = (p.currentPosition + relSeek.toLong()).coerceAtLeast(0L)
+            p.seekTo(target)
+            Log.d(TAG, "relative seek $relSeek -> $target")
+        }
+    }
+
+    fun seekTo(positionMs: Long) {
+        runOnPlayerThread {
+            player?.seekTo(positionMs.coerceAtLeast(0L))
+            Log.d(TAG, "seekTo $positionMs")
+        }
+    }
+
+    fun playFromServer(positionMs: Long? = null) {
+        shouldResumePlayback = true
+
+        runOnPlayerThread {
+            val p = player ?: return@runOnPlayerThread
+            if (positionMs != null) {
+                p.seekTo(positionMs.coerceAtLeast(0L))
+            }
+            p.play()
+        }
+    }
+
+    fun pauseFromServer(positionMs: Long? = null) {
+        shouldResumePlayback = false
+
+        runOnPlayerThread {
+            val p = player ?: return@runOnPlayerThread
+            if (positionMs != null) {
+                p.seekTo(positionMs.coerceAtLeast(0L))
+            }
+            p.pause()
+        }
+    }
+
+    /**
+     * maxHeight <= 0 means unrestricted AUTO ABR.
+     */
+    fun setMaxVideoHeight(maxHeight: Int) {
+        runOnPlayerThread {
+            val p = player ?: return@runOnPlayerThread
+            val builder = p.trackSelectionParameters.buildUpon()
+
+            if (maxHeight <= 0) {
+                builder.clearVideoSizeConstraints()
+            } else {
+                builder.setMaxVideoSize(Int.MAX_VALUE, maxHeight)
+            }
+
+            p.trackSelectionParameters = builder.build()
+            Log.d(TAG, "ABR maxHeight=$maxHeight")
+        }
+    }
+
+    fun getCurrentPositionMs(): Long = currentPositionMs
+
+    fun getBufferedPositionMs(): Long = bufferedPositionMs
+
+    /**
+     * Historical Renderer progress value: normalized 0..1.
+     */
+    fun getVideoPosition(): Float = normalizedVideoPosition
+
+    /**
+     * Called from the GL thread before rendering.
+     */
+    fun updateIfNeeded() {
+        if (!frameAvailable.getAndSet(false)) return
+
+        try {
+            surfaceTexture?.updateTexImage()
+        } catch (e: Throwable) {
+            Log.e(TAG, "updateTexImage error", e)
+        }
+    }
+
+    override fun onFrameAvailable(surfaceTexture: SurfaceTexture?) {
+        frameAvailable.set(true)
+    }
+
+    fun onPause() {
+        cancelPendingReconnect()
+
+        runOnPlayerThread {
+            val p = player
+            if (p != null) {
+                shouldResumePlayback = p.playWhenReady
+                p.pause()
+            }
+        }
+    }
+
+    fun onResume() {
+        if (!initialized) return
+
+        runOnPlayerThread {
+            if (shouldResumePlayback) {
+                player?.play()
+            }
+        }
+    }
+
+    fun onDestroy() {
+        initialized = false
+        cancelPendingReconnect()
+        mainHandler.removeCallbacks(positionUpdateRunnable)
+
+        runOnPlayerThread {
+            releasePlayerInternal()
+
+            try {
+                surface?.release()
+            } catch (_: Throwable) {
+            }
+            surface = null
+
+            try {
+                surfaceTexture?.release()
+            } catch (_: Throwable) {
+            }
+            surfaceTexture = null
+        }
+    }
+
+    /**
+     * Accepts both old udpxy HTTP transport and new HLS master.m3u8.
+     */
+    fun setStreamSourceUrl(url: String) {
+        val normalized = normalizeHttpStreamUrl(url)
+        if (normalized == streamSourceUrl) return
+
+        streamSourceUrl = normalized
+        Log.d(TAG, "Updated stream source: $streamSourceUrl")
+
+        if (initialized) {
+            runOnPlayerThread {
+                openStream(0L, shouldResumePlayback)
+            }
+        }
+    }
+
+    private fun scheduleStreamReconnect(reason: String) {
+        if (!initialized) return
+
+        cancelPendingReconnect()
+
+        val resumePosition = currentPositionMs
+        val runnable = Runnable {
+            reconnectRunnable = null
+            if (!initialized) return@Runnable
+
+            Log.w(TAG, "Reconnecting: $reason")
+            openStream(
+                if (isHlsUrl(streamSourceUrl)) resumePosition else 0L,
+                shouldResumePlayback
+            )
+        }
+
+        reconnectRunnable = runnable
+        mainHandler.postDelayed(runnable, 2_000L)
+    }
+
+    private fun cancelPendingReconnect() {
+        reconnectRunnable?.let(mainHandler::removeCallbacks)
+        reconnectRunnable = null
+    }
+
+    private fun releasePlayerInternal() {
+        cancelPendingReconnect()
+
+        try {
+            player?.clearVideoSurface()
+            player?.release()
+        } catch (e: Throwable) {
+            Log.e(TAG, "player release error", e)
+        }
+
+        player = null
+    }
+
+    private fun runOnPlayerThread(block: () -> Unit) {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            block()
+        } else {
+            mainHandler.post(block)
+        }
     }
 
     private fun normalizeHttpStreamUrl(raw: String): String {
         val value = raw.trim()
-        if (value.isBlank()) {
-            return UDPXY_HTTP_URL
-        }
+        if (value.isBlank()) return ""
 
         return if (
             value.startsWith("http://", ignoreCase = true) ||
@@ -448,42 +478,15 @@ class VideoTexturePlayer(
         }
     }
 
-    private fun scheduleStreamReconnect(reason: String) {
-        if (!initialized) return
-        if (reconnectRunnable != null) return
-
-        reconnectRunnable = Runnable {
-            reconnectRunnable = null
-            reconnectStream(reason)
-        }
-
-        Log.w(TAG, "Scheduling VLC reconnect: $reason")
-        mainHandler.postDelayed(reconnectRunnable!!, 1200)
+    private fun isHlsUrl(url: String): Boolean {
+        val clean = url.substringBefore('?').substringBefore('#')
+        return clean.endsWith(".m3u8", ignoreCase = true)
     }
 
-    private fun reconnectStream(reason: String) {
-        if (!initialized) return
-
-        val player = vlcPlayer ?: return
-        val vlc = libVlc ?: return
-
-        try {
-            Log.w(TAG, "Reconnecting VLC stream after $reason")
-            player.stop()
-        } catch (e: Throwable) {
-            Log.e(TAG, "VLC stop before reconnect failed", e)
-        }
-
-        try {
-            openStream(player, vlc)
-        } catch (e: Throwable) {
-            Log.e(TAG, "VLC reconnect failed", e)
-            scheduleStreamReconnect("retry after reconnect failure")
-        }
-    }
-
-    private fun cancelPendingReconnect() {
-        reconnectRunnable?.let { mainHandler.removeCallbacks(it) }
-        reconnectRunnable = null
+    private fun isLegacyTransportStreamUrl(url: String): Boolean {
+        val lower = url.lowercase()
+        return lower.contains("/udp/") ||
+            lower.endsWith(".ts") ||
+            lower.contains(".ts?")
     }
 }
