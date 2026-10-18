@@ -404,6 +404,9 @@ class MainActivity : AppCompatActivity(),
             onTextMarkClear = {
                 clearTextMarksInsideSphere()
             },
+            onPlaybackCommand = { command ->
+                handlePlaybackCommand(command)
+            },
             onConnectionUnavailable = {
                 showControlServerIpDialog(it)
             }
@@ -453,7 +456,7 @@ class MainActivity : AppCompatActivity(),
             .setMessage(
                 "$message\n\n" +
                     "Верхнее поле: адрес WS-сервера управления.\n" +
-                    "Нижнее поле: HTTP-адрес видеопотока от udpxy или msd_lite."
+                    "Нижнее поле: HLS master.m3u8 или старый HTTP-поток udpxy/msd_lite."
             )
             .setView(container)
             .setPositiveButton("Сохранить") { _, _ ->
@@ -622,6 +625,56 @@ class MainActivity : AppCompatActivity(),
         }
 
         popup.show()
+    }
+
+    private fun handlePlaybackCommand(command: ServerPlaybackCommand) {
+        Log.d(TAG, "handlePlaybackCommand: $command")
+
+        when (command.type) {
+            "load" -> {
+                val url = command.url?.let(::normalizeVideoStreamUrl).orEmpty()
+                if (url.isBlank()) {
+                    Log.w(TAG, "Playback load ignored: empty URL")
+                    return
+                }
+
+                videoStreamUrl = url
+                saveVideoStreamUrl(url)
+
+                videoTexturePlayer.loadFromServer(
+                    url = url,
+                    positionMs = command.positionMs ?: 0L,
+                    autoPlay = command.autoPlay
+                )
+
+                Log.d(
+                    TAG,
+                    "Loaded adaptive lesson url=$url position=" +
+                        (command.positionMs ?: 0L) +
+                        " autoPlay=" + command.autoPlay
+                )
+            }
+
+            "play" -> {
+                videoTexturePlayer.playFromServer(command.positionMs)
+            }
+
+            "pause" -> {
+                videoTexturePlayer.pauseFromServer(command.positionMs)
+            }
+
+            "seek" -> {
+                command.positionMs?.let(videoTexturePlayer::seekTo)
+            }
+
+            "quality_limit" -> {
+                videoTexturePlayer.setMaxVideoHeight(command.maxHeight ?: 0)
+            }
+
+            else -> {
+                Log.w(TAG, "Unknown playback command: $command")
+            }
+        }
     }
 
     private fun radiusToFov(radius: Float): Float {
