@@ -44,6 +44,14 @@ data class ServerTextMark(
     val durationMs: Int
 )
 
+data class ServerPlaybackCommand(
+    val type: String,
+    val url: String? = null,
+    val positionMs: Long? = null,
+    val autoPlay: Boolean = false,
+    val maxHeight: Int? = null
+)
+
 class TeacherControlClient(
     private val wsUrl: String,
     private val onLookAt: (yaw: Float, pitch: Float, radius: Float, duration: Int) -> Unit,
@@ -54,6 +62,7 @@ class TeacherControlClient(
     ) -> Unit,
     private val onTextMark: (mark: ServerTextMark) -> Unit,
     private val onTextMarkClear: () -> Unit,
+    private val onPlaybackCommand: (command: ServerPlaybackCommand) -> Unit,
     private val onConnectionUnavailable: (message: String) -> Unit
 ) {
     private val tag = "TeacherControlClient"
@@ -98,7 +107,7 @@ class TeacherControlClient(
 
                 webSocket.send(
                     """
-                    {"type":"android_hello","client":"vrvideoplayer","supports":["yaw_pitch","xyz","video_mode","text-mark"]}
+                    {"type":"android_hello","client":"vrvideoplayer","supports":["yaw_pitch","xyz","video_mode","text-mark","hls","abr","cache","play","pause","seek","quality_limit"]}
                     """.trimIndent()
                 )
             }
@@ -189,6 +198,10 @@ class TeacherControlClient(
                 return
             }
 
+            if (handlePlaybackMessage(root, type)) {
+                return
+            }
+
             if (isVideoModeMessage(root)) {
                 handleVideoModeMessage(root)
             }
@@ -196,6 +209,137 @@ class TeacherControlClient(
             handleLookAtMessage(root)
         } catch (e: Exception) {
             Log.e(tag, "Bad WS message: $text", e)
+        }
+    }
+
+    private fun handlePlaybackMessage(root: JSONObject, type: String): Boolean {
+        val normalizedType = type.replace("-", "_")
+
+        when (normalizedType) {
+            "load",
+            "load_video",
+            "load_lesson",
+            "prepare_lesson",
+            "lesson_load" -> {
+                val url = firstNonBlank(
+                    root.optString("url", ""),
+                    root.optString("masterUrl", ""),
+                    root.optString("master_url", ""),
+                    root.optString("streamUrl", ""),
+                    root.optString("stream_url", ""),
+                    root.optString("master", "")
+                )
+
+                if (url.isBlank()) {
+                    Log.w(tag, "Playback load ignored: no URL in $root")
+                    return true
+                }
+
+                postPlaybackCommand(
+                    ServerPlaybackCommand(
+                        type = "load",
+                        url = url,
+                        positionMs = readPositionMs(root) ?: 0L,
+                        autoPlay = root.optBoolean("autoPlay", root.optBoolean("autoplay", false))
+                    )
+                )
+                return true
+            }
+
+            "play",
+            "resume" -> {
+                postPlaybackCommand(
+                    ServerPlaybackCommand(
+                        type = "play",
+                        positionMs = readPositionMs(root)
+                    )
+                )
+                return true
+            }
+
+            "pause" -> {
+                postPlaybackCommand(
+                    ServerPlaybackCommand(
+                        type = "pause",
+                        positionMs = readPositionMs(root)
+                    )
+                )
+                return true
+            }
+
+            "seek",
+            "seek_to",
+            "timeline_seek" -> {
+                val positionMs = readPositionMs(root)
+                if (positionMs == null) {
+                    Log.w(tag, "Seek ignored: no position in $root")
+                } else {
+                    postPlaybackCommand(
+                        ServerPlaybackCommand(
+                            type = "seek",
+                            positionMs = positionMs
+                        )
+                    )
+                }
+                return true
+            }
+
+            "quality_limit",
+            "quality",
+            "abr_limit" -> {
+                val maxHeight = readMaxHeight(root)
+                postPlaybackCommand(
+                    ServerPlaybackCommand(
+                        type = "quality_limit",
+                        maxHeight = maxHeight
+                    )
+                )
+                return true
+            }
+        }
+
+        return false
+    }
+
+    private fun postPlaybackCommand(command: ServerPlaybackCommand) {
+        Log.d(tag, "Playback command: $command")
+        mainHandler.post { onPlaybackCommand(command) }
+    }
+
+    private fun firstNonBlank(vararg values: String): String {
+        return values.firstOrNull { it.isNotBlank() }.orEmpty()
+    }
+
+    private fun readPositionMs(root: JSONObject): Long? {
+        if (root.has("positionMs")) return root.optLong("positionMs").coerceAtLeast(0L)
+        if (root.has("position_ms")) return root.optLong("position_ms").coerceAtLeast(0L)
+        if (root.has("timeMs")) return root.optLong("timeMs").coerceAtLeast(0L)
+        if (root.has("time_ms")) return root.optLong("time_ms").coerceAtLeast(0L)
+
+        if (root.has("position")) {
+            val seconds = root.optDouble("position", Double.NaN)
+            if (!seconds.isNaN()) return (seconds * 1000.0).toLong().coerceAtLeast(0L)
+        }
+
+        if (root.has("time")) {
+            val seconds = root.optDouble("time", Double.NaN)
+            if (!seconds.isNaN()) return (seconds * 1000.0).toLong().coerceAtLeast(0L)
+        }
+
+        return null
+    }
+
+    private fun readMaxHeight(root: JSONObject): Int {
+        if (root.has("maxHeight")) return root.optInt("maxHeight", 0).coerceAtLeast(0)
+        if (root.has("max_height")) return root.optInt("max_height", 0).coerceAtLeast(0)
+        if (root.has("height")) return root.optInt("height", 0).coerceAtLeast(0)
+
+        return when (root.optString("quality", "auto").trim().lowercase()) {
+            "low", "640p", "640" -> 640
+            "2k", "1024p", "1024" -> 1024
+            "3k", "1440p", "1440" -> 1440
+            "4k", "1920p", "1920" -> 1920
+            else -> 0
         }
     }
 
