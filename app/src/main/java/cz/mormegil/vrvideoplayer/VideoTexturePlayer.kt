@@ -110,6 +110,9 @@ class VideoTexturePlayer(
     @Volatile
     private var lowPrecachePercent = 0
 
+    @Volatile
+    private var precacheStatusText = "LOW 0%"
+
     private var streamSourceUrl = ""
     private var initialized = false
     private var shouldResumePlayback = false
@@ -512,6 +515,8 @@ class VideoTexturePlayer(
 
     fun getLowPrecachePercent(): Int = lowPrecachePercent
 
+    fun getPrecacheStatusText(): String = precacheStatusText
+
     /**
      * Pre-cache policy for classroom playback:
      *   LOW -> always first and highest priority
@@ -524,6 +529,7 @@ class VideoTexturePlayer(
      */
     private fun precacheAdaptiveVariants(masterUrl: String) {
         lowPrecachePercent = 0
+        precacheStatusText = "LOW 0%"
         val generation = precacheGeneration.incrementAndGet()
         val lessonBase = lessonBaseUrl(masterUrl)
         markLessonUsed(masterUrl)
@@ -535,6 +541,7 @@ class VideoTexturePlayer(
                     VariantPrecachePlan("2k", "2K", TWO_K_BITRATE_BPS, false),
                     VariantPrecachePlan("3k", "3K", THREE_K_BITRATE_BPS, false)
                 )
+                val completed = mutableListOf<String>()
 
                 for (variant in variants) {
                     if (generation != precacheGeneration.get()) {
@@ -574,8 +581,15 @@ class VideoTexturePlayer(
                                 "estimated=${formatBytes(estimatedBytes)} " +
                                 "additional=${formatBytes(additionalBytes)}"
                         )
-                        if (!variant.priority) return@execute
+                        if (!variant.priority) {
+                            precacheStatusText =
+                                completed.joinToString("+").ifBlank { "LOW" } +
+                                    " · ${variant.label}: нет места"
+                            return@execute
+                        }
                     }
+
+                    precacheStatusText = "${variant.label} 0%"
 
                     Log.d(
                         TAG,
@@ -592,11 +606,14 @@ class VideoTexturePlayer(
 
                         cacheUrl(url)
 
+                        val variantPercent =
+                            (((index + 1) * 100.0) / resources.size.coerceAtLeast(1))
+                                .toInt()
+                                .coerceIn(0, 100)
+                        precacheStatusText = "${variant.label} $variantPercent%"
+
                         if (variant.id == "low") {
-                            lowPrecachePercent =
-                                (((index + 1) * 100.0) / resources.size.coerceAtLeast(1))
-                                    .toInt()
-                                    .coerceIn(0, 100)
+                            lowPrecachePercent = variantPercent
 
                             Log.d(
                                 TAG,
@@ -610,10 +627,13 @@ class VideoTexturePlayer(
                         lowPrecachePercent = 100
                     }
 
+                    completed += variant.label
+                    precacheStatusText = completed.joinToString("+")
                     markLessonUsed(masterUrl)
                     Log.d(TAG, "${variant.label} precache complete")
                 }
             } catch (e: Throwable) {
+                precacheStatusText = "ошибка кэша"
                 Log.e(TAG, "Adaptive precache failed", e)
             }
         }
