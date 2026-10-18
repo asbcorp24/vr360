@@ -19,7 +19,8 @@ import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.CacheWriter
-import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
+import androidx.media3.datasource.cache.CacheUtil
+import androidx.media3.datasource.cache.NoOpCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -28,6 +29,7 @@ import java.net.URI
 import java.net.URL
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Media3/ExoPlayer transport for the existing OpenGL/Cardboard renderer.
@@ -45,7 +47,15 @@ class VideoTexturePlayer(
         private const val TAG = "Media3TexturePlayer"
         private const val FALLBACK_WIDTH = 2048
         private const val FALLBACK_HEIGHT = 1024
-        private const val CACHE_SIZE_BYTES = 6L * 1024L * 1024L * 1024L
+        private const val CACHE_HARD_BUDGET_BYTES = 12L * 1024L * 1024L * 1024L
+        private const val CACHE_MIN_BUDGET_BYTES = 4L * 1024L * 1024L * 1024L
+        private const val CACHE_FREE_SPACE_RESERVE_BYTES = 2L * 1024L * 1024L * 1024L
+        private const val CACHE_META_PREFS = "vr360_cache_meta"
+        private const val CACHE_META_LESSONS = "lesson_bases"
+
+        private const val LOW_BITRATE_BPS = 2_000_000L + 128_000L
+        private const val TWO_K_BITRATE_BPS = 4_000_000L + 128_000L
+        private const val THREE_K_BITRATE_BPS = 8_000_000L + 128_000L
 
         @Volatile
         private var sharedCache: SimpleCache? = null
@@ -69,7 +79,7 @@ class VideoTexturePlayer(
 
                 val cache = SimpleCache(
                     File(appContext.noBackupFilesDir, "vr360-media3-cache"),
-                    LeastRecentlyUsedCacheEvictor(CACHE_SIZE_BYTES),
+                    NoOpCacheEvictor(),
                     databaseProvider
                 )
 
@@ -86,6 +96,7 @@ class VideoTexturePlayer(
     private var player: ExoPlayer? = null
 
     private val frameAvailable = AtomicBoolean(false)
+    private val precacheGeneration = AtomicLong(0L)
 
     @Volatile
     private var normalizedVideoPosition = 0.0f
@@ -463,6 +474,7 @@ class VideoTexturePlayer(
 
         streamSourceUrl = normalized
         shouldResumePlayback = autoPlay
+        markLessonUsed(normalized)
 
         Log.d(
             TAG,
@@ -470,7 +482,7 @@ class VideoTexturePlayer(
         )
 
         if (isHlsUrl(normalized)) {
-            precacheLowVariant(normalized)
+            precacheAdaptiveVariants(normalized)
         }
 
         if (initialized) {
@@ -501,71 +513,361 @@ class VideoTexturePlayer(
     fun getLowPrecachePercent(): Int = lowPrecachePercent
 
     /**
-     * Our packager always creates low/playlist.m3u8 next to master.m3u8.
-     * We preload the complete LOW variant into the same SimpleCache that ExoPlayer reads.
+     * Pre-cache policy for classroom playback:
+     *   LOW -> always first and highest priority
+     *   2K  -> after LOW if storage permits
+     *   3K  -> after 2K if storage permits
+     *   4K  -> never pre-cached; it stays normal read-through ABR cache
+     *
+     * Old lessons are deleted as complete /abr/<id>/ groups when space is
+     * needed. The current lesson is never selected as an eviction victim.
      */
-    private fun precacheLowVariant(masterUrl: String) {
+    private fun precacheAdaptiveVariants(masterUrl: String) {
         lowPrecachePercent = 0
+        val generation = precacheGeneration.incrementAndGet()
+        val lessonBase = lessonBaseUrl(masterUrl)
+        markLessonUsed(masterUrl)
 
         precacheExecutor.execute {
             try {
-                val masterUri = URI(masterUrl)
-                val lowPlaylistUrl = masterUri.resolve("low/playlist.m3u8").toString()
+                val variants = listOf(
+                    VariantPrecachePlan("low", "LOW", LOW_BITRATE_BPS, true),
+                    VariantPrecachePlan("2k", "2K", TWO_K_BITRATE_BPS, false),
+                    VariantPrecachePlan("3k", "3K", THREE_K_BITRATE_BPS, false)
+                )
 
-                Log.d(TAG, "LOW precache playlist=$lowPlaylistUrl")
-
-                val connection = URL(lowPlaylistUrl).openConnection().apply {
-                    connectTimeout = 5_000
-                    readTimeout = 15_000
-                    setRequestProperty("User-Agent", "VR360-Android/2.0")
-                }
-
-                val playlistText = connection.getInputStream()
-                    .bufferedReader(Charsets.UTF_8)
-                    .use { it.readText() }
-
-                val lowBase = URI(lowPlaylistUrl)
-                val resources = LinkedHashSet<String>()
-                resources += masterUrl
-                resources += lowPlaylistUrl
-
-                Regex("""#EXT-X-MAP:.*URI="([^"]+)"""")
-                    .findAll(playlistText)
-                    .forEach { match ->
-                        resources += lowBase.resolve(match.groupValues[1]).toString()
+                for (variant in variants) {
+                    if (generation != precacheGeneration.get()) {
+                        Log.d(TAG, "Precache cancelled: newer lesson loaded")
+                        return@execute
                     }
 
-                playlistText.lineSequence()
-                    .map { it.trim() }
-                    .filter { it.isNotEmpty() && !it.startsWith("#") }
-                    .forEach { relative ->
-                        resources += lowBase.resolve(relative).toString()
+                    val playlistUrl =
+                        URI(masterUrl).resolve("${variant.id}/playlist.m3u8").toString()
+                    val playlistText = downloadText(playlistUrl)
+                    val resources = collectHlsResources(
+                        masterUrl = masterUrl,
+                        playlistUrl = playlistUrl,
+                        playlistText = playlistText
+                    )
+
+                    val durationSec = parsePlaylistDurationSec(playlistText)
+                    val estimatedBytes = estimateVariantBytes(
+                        bitrateBps = variant.bitrateBps,
+                        durationSec = durationSec
+                    )
+                    val variantBase = URI(playlistUrl).resolve("./").toString()
+                    val alreadyCached = cachedBytesForPrefix(variantBase)
+                    val additionalBytes =
+                        (estimatedBytes - alreadyCached).coerceAtLeast(0L)
+
+                    val hasSpace = ensureSpaceForVariant(
+                        currentLessonBase = lessonBase,
+                        additionalBytes = additionalBytes,
+                        priority = variant.priority
+                    )
+
+                    if (!hasSpace) {
+                        Log.w(
+                            TAG,
+                            "${variant.label} precache skipped: not enough storage " +
+                                "estimated=${formatBytes(estimatedBytes)} " +
+                                "additional=${formatBytes(additionalBytes)}"
+                        )
+                        if (!variant.priority) return@execute
                     }
-
-                if (resources.isEmpty()) {
-                    lowPrecachePercent = 100
-                    return@execute
-                }
-
-                resources.forEachIndexed { index, url ->
-                    cacheUrl(url)
-                    lowPrecachePercent = (((index + 1) * 100.0) / resources.size)
-                        .toInt()
-                        .coerceIn(0, 100)
 
                     Log.d(
                         TAG,
-                        "LOW precache $lowPrecachePercent% (" +
-                            (index + 1) + "/" + resources.size + ")"
+                        "${variant.label} precache start resources=${resources.size} " +
+                            "duration=${"%.1f".format(durationSec)}s " +
+                            "estimated=${formatBytes(estimatedBytes)}"
                     )
-                }
 
-                lowPrecachePercent = 100
-                Log.d(TAG, "LOW precache complete")
+                    resources.forEachIndexed { index, url ->
+                        if (generation != precacheGeneration.get()) {
+                            Log.d(TAG, "Precache cancelled during ${variant.label}")
+                            return@execute
+                        }
+
+                        cacheUrl(url)
+
+                        if (variant.id == "low") {
+                            lowPrecachePercent =
+                                (((index + 1) * 100.0) / resources.size.coerceAtLeast(1))
+                                    .toInt()
+                                    .coerceIn(0, 100)
+
+                            Log.d(
+                                TAG,
+                                "LOW precache $lowPrecachePercent% (" +
+                                    (index + 1) + "/" + resources.size + ")"
+                            )
+                        }
+                    }
+
+                    if (variant.id == "low") {
+                        lowPrecachePercent = 100
+                    }
+
+                    markLessonUsed(masterUrl)
+                    Log.d(TAG, "${variant.label} precache complete")
+                }
             } catch (e: Throwable) {
-                Log.e(TAG, "LOW precache failed", e)
+                Log.e(TAG, "Adaptive precache failed", e)
             }
         }
+    }
+
+    private data class VariantPrecachePlan(
+        val id: String,
+        val label: String,
+        val bitrateBps: Long,
+        val priority: Boolean
+    )
+
+    private fun downloadText(url: String): String {
+        val connection = URL(url).openConnection().apply {
+            connectTimeout = 5_000
+            readTimeout = 15_000
+            setRequestProperty("User-Agent", "VR360-Android/2.0")
+        }
+
+        return connection.getInputStream()
+            .bufferedReader(Charsets.UTF_8)
+            .use { it.readText() }
+    }
+
+    private fun collectHlsResources(
+        masterUrl: String,
+        playlistUrl: String,
+        playlistText: String
+    ): LinkedHashSet<String> {
+        val base = URI(playlistUrl)
+        val resources = LinkedHashSet<String>()
+
+        resources += masterUrl
+        resources += playlistUrl
+
+        Regex("""#EXT-X-MAP:.*URI="([^"]+)"""")
+            .findAll(playlistText)
+            .forEach { match ->
+                resources += base.resolve(match.groupValues[1]).toString()
+            }
+
+        playlistText.lineSequence()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() && !it.startsWith("#") }
+            .forEach { relative ->
+                resources += base.resolve(relative).toString()
+            }
+
+        return resources
+    }
+
+    private fun parsePlaylistDurationSec(playlistText: String): Double {
+        return Regex("""#EXTINF:([0-9]+(?:\.[0-9]+)?)""")
+            .findAll(playlistText)
+            .sumOf { it.groupValues[1].toDoubleOrNull() ?: 0.0 }
+            .coerceAtLeast(0.0)
+    }
+
+    private fun estimateVariantBytes(
+        bitrateBps: Long,
+        durationSec: Double
+    ): Long {
+        if (durationSec <= 0.0) return 0L
+
+        return ((bitrateBps.toDouble() * durationSec / 8.0) * 1.10)
+            .toLong()
+            .coerceAtLeast(0L)
+    }
+
+    private fun lessonBaseUrl(masterUrl: String): String {
+        return try {
+            val uri = URI(masterUrl)
+            val path = uri.path.orEmpty()
+            val basePath =
+                if (path.contains("/")) path.substringBeforeLast("/") + "/" else "/"
+
+            URI(
+                uri.scheme,
+                uri.userInfo,
+                uri.host,
+                uri.port,
+                basePath,
+                null,
+                null
+            ).toString()
+        } catch (_: Throwable) {
+            masterUrl.substringBeforeLast("/", masterUrl) + "/"
+        }
+    }
+
+    private fun markLessonUsed(masterUrl: String) {
+        if (!isHlsUrl(masterUrl)) return
+
+        val base = lessonBaseUrl(masterUrl)
+        val prefs = context.applicationContext
+            .getSharedPreferences(CACHE_META_PREFS, Context.MODE_PRIVATE)
+        val lessons = prefs.getStringSet(CACHE_META_LESSONS, emptySet())
+            ?.toMutableSet()
+            ?: mutableSetOf()
+
+        lessons += base
+        prefs.edit()
+            .putStringSet(CACHE_META_LESSONS, lessons)
+            .putLong("last::$base", System.currentTimeMillis())
+            .apply()
+    }
+
+    private fun maxManagedCacheBytes(): Long {
+        val cacheDir = File(context.applicationContext.noBackupFilesDir, "vr360-media3-cache")
+        val total = cacheDir.parentFile?.totalSpace?.takeIf { it > 0L }
+            ?: CACHE_HARD_BUDGET_BYTES
+
+        return minOf(
+            CACHE_HARD_BUDGET_BYTES,
+            maxOf(CACHE_MIN_BUDGET_BYTES, total / 3L)
+        )
+    }
+
+    private fun ensureSpaceForVariant(
+        currentLessonBase: String,
+        additionalBytes: Long,
+        priority: Boolean
+    ): Boolean {
+        if (additionalBytes <= 0L) return true
+
+        val cache = getCache(context.applicationContext)
+        val cacheDir = File(context.applicationContext.noBackupFilesDir, "vr360-media3-cache")
+        val softBudget = maxManagedCacheBytes()
+
+        fun enoughPhysicalSpace(): Boolean =
+            cacheDir.usableSpace >= additionalBytes + CACHE_FREE_SPACE_RESERVE_BYTES
+
+        fun enoughManagedBudget(): Boolean =
+            cache.cacheSpace + additionalBytes <= softBudget
+
+        if (enoughPhysicalSpace() && (priority || enoughManagedBudget())) {
+            return true
+        }
+
+        removeOldestLessonsUntilSpace(
+            currentLessonBase = currentLessonBase,
+            additionalBytes = additionalBytes,
+            requireManagedBudget = !priority
+        )
+
+        val physicalOk = enoughPhysicalSpace()
+        val budgetOk = priority || enoughManagedBudget()
+
+        if (!physicalOk || !budgetOk) {
+            Log.w(
+                TAG,
+                "Storage still insufficient current=${formatBytes(cache.cacheSpace)} " +
+                    "need=${formatBytes(additionalBytes)} " +
+                    "free=${formatBytes(cacheDir.usableSpace)} " +
+                    "budget=${formatBytes(softBudget)} priority=$priority"
+            )
+        }
+
+        return physicalOk && budgetOk
+    }
+
+    private fun removeOldestLessonsUntilSpace(
+        currentLessonBase: String,
+        additionalBytes: Long,
+        requireManagedBudget: Boolean
+    ) {
+        val appContext = context.applicationContext
+        val cache = getCache(appContext)
+        val cacheDir = File(appContext.noBackupFilesDir, "vr360-media3-cache")
+        val prefs = appContext.getSharedPreferences(CACHE_META_PREFS, Context.MODE_PRIVATE)
+        val knownLessons = prefs.getStringSet(CACHE_META_LESSONS, emptySet())
+            ?.toMutableSet()
+            ?: mutableSetOf()
+        val budget = maxManagedCacheBytes()
+
+        fun stillNeedsSpace(): Boolean {
+            val physical =
+                cacheDir.usableSpace < additionalBytes + CACHE_FREE_SPACE_RESERVE_BYTES
+            val managed =
+                requireManagedBudget && cache.cacheSpace + additionalBytes > budget
+            return physical || managed
+        }
+
+        val victims = knownLessons
+            .filter { it != currentLessonBase }
+            .sortedBy { prefs.getLong("last::$it", 0L) }
+
+        for (victim in victims) {
+            if (!stillNeedsSpace()) break
+
+            val freed = removeLessonFromCache(victim)
+            knownLessons.remove(victim)
+            prefs.edit()
+                .remove("last::$victim")
+                .putStringSet(CACHE_META_LESSONS, knownLessons)
+                .apply()
+
+            Log.i(
+                TAG,
+                "Evicted old lesson cache base=$victim freed=${formatBytes(freed)}"
+            )
+        }
+
+        if (stillNeedsSpace()) {
+            val knownPrefixes = knownLessons.toList()
+            val orphanKeys = cache.keys
+                .filter { key ->
+                    !key.startsWith(currentLessonBase) &&
+                        knownPrefixes.none { prefix -> key.startsWith(prefix) }
+                }
+
+            var freed = 0L
+            for (key in orphanKeys) {
+                if (!stillNeedsSpace()) break
+                freed += cachedBytesForKey(key)
+                CacheUtil.remove(cache, key)
+            }
+
+            if (freed > 0L) {
+                Log.i(TAG, "Evicted legacy cache resources freed=${formatBytes(freed)}")
+            }
+        }
+    }
+
+    private fun removeLessonFromCache(base: String): Long {
+        val cache = getCache(context.applicationContext)
+        val keys = cache.keys.filter { it.startsWith(base) }
+        var freed = 0L
+
+        for (key in keys) {
+            freed += cachedBytesForKey(key)
+            CacheUtil.remove(cache, key)
+        }
+
+        return freed
+    }
+
+    private fun cachedBytesForPrefix(prefix: String): Long {
+        val cache = getCache(context.applicationContext)
+        return cache.keys
+            .asSequence()
+            .filter { it.startsWith(prefix) }
+            .sumOf { cachedBytesForKey(it) }
+    }
+
+    private fun cachedBytesForKey(key: String): Long {
+        return getCache(context.applicationContext)
+            .getCachedSpans(key)
+            .sumOf { it.length.coerceAtLeast(0L) }
+    }
+
+    private fun formatBytes(bytes: Long): String {
+        val gb = bytes.toDouble() / (1024.0 * 1024.0 * 1024.0)
+        return "%.2f GiB".format(gb)
     }
 
     private fun cacheUrl(url: String) {
