@@ -23,7 +23,6 @@ import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.media.AudioManager
 import android.media.MediaPlayer
-import android.net.wifi.WifiManager
 import android.opengl.GLSurfaceView
 import android.os.Bundle
 import android.util.Log
@@ -42,9 +41,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import cz.mormegil.vrvideoplayer.databinding.ActivityMainBinding
-import java.net.URI
-import java.net.InetSocketAddress
-import java.net.Socket
+import java.util.UUID
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 
@@ -54,13 +51,11 @@ class MainActivity : AppCompatActivity(),
 
     companion object {
         private const val TAG = "VRVideoPlayer"
-        private const val CONTROL_SERVER_DIALOG_TIMEOUT_MS = 40_000L
-
         private const val PREFS_NAME = "vr360_settings"
         private const val KEY_CONTROL_SERVER_ENDPOINT = "control_server_ip"
-        private const val KEY_VIDEO_STREAM_URL = "video_stream_url"
-        private const val DEFAULT_CONTROL_SERVER_ENDPOINT = "192.168.1.104"
-        private const val DEFAULT_VIDEO_STREAM_URL = "http://192.168.10.1:7088/udp/239.0.0.1:5004"
+        private const val KEY_DISPLAY_MODE = "display_mode"
+        private const val KEY_CLIENT_ID = "client_id"
+        private const val DEFAULT_CONTROL_SERVER_ENDPOINT = "192.168.1.106"
 
         /*
          * Чувствительность Android SensorManager.
@@ -71,12 +66,6 @@ class MainActivity : AppCompatActivity(),
         private const val PITCH_SENSITIVITY = 4.0f
         private const val ROLL_SENSITIVITY = 1.0f
 
-        /**
-         * В рабочей версии приложение должно стартовать именно в Cardboard-режиме.
-         * Команды сервера могут менять геометрию входного видео (360/180, mono/stereo),
-         * но выходной режим по умолчанию всегда оставляем CardboardStereo.
-         */
-        private const val FORCE_CARDBOARD_OUTPUT = true
     }
 
     private lateinit var binding: ActivityMainBinding
@@ -94,8 +83,21 @@ class MainActivity : AppCompatActivity(),
      * если сервер управления недоступен.
      */
     private var controlServerEndpoint = DEFAULT_CONTROL_SERVER_ENDPOINT
-    private var videoStreamUrl = DEFAULT_VIDEO_STREAM_URL
     private var serverIpDialogShown = false
+    private lateinit var clientId: String
+
+    private val statusHandler = Handler(Looper.getMainLooper())
+    private var controlConnected = false
+
+    private var sensorYaw = 0.0f
+    private var sensorPitch = 0.0f
+    private var sensorRoll = 0.0f
+    private var touchYawOffset = 0.0f
+    private var touchPitchOffset = 0.0f
+    private var touchStartX = 0.0f
+    private var touchStartY = 0.0f
+    private var touchStartYawOffset = 0.0f
+    private var touchStartPitchOffset = 0.0f
 
     /*
      * VR WebSocket на сервере:
@@ -109,10 +111,7 @@ class MainActivity : AppCompatActivity(),
      */
     private var inputLayout: InputLayout = InputLayout.Mono
     private var inputMode: InputMode = InputMode.Equirect360
-    private var outputMode: OutputMode = OutputMode.CardboardStereo
-
-    private var multicastLock: WifiManager.MulticastLock? = null
-    private var lastTouchCoordinates = arrayOf(1.0f, 0.0f)
+    private var outputMode: OutputMode = OutputMode.MonoLeft
 
     private lateinit var sensorManager: SensorManager
     private var rotationSensor: Sensor? = null
@@ -129,9 +128,9 @@ class MainActivity : AppCompatActivity(),
 
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
 
-        acquireMulticastLock()
         controlServerEndpoint = loadSavedControlServerEndpoint()
-        videoStreamUrl = loadSavedVideoStreamUrl()
+        clientId = loadOrCreateClientId()
+        outputMode = loadSavedDisplayMode()
 
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
@@ -151,7 +150,6 @@ class MainActivity : AppCompatActivity(),
             context = this,
             videoSizeChangedListener = this
         )
-        videoTexturePlayer.setStreamSourceUrl(videoStreamUrl)
 
         controller = Controller(
             getSystemService(AudioManager::class.java),
@@ -168,7 +166,7 @@ class MainActivity : AppCompatActivity(),
         /*
          * Первый стартовый setOptions. Он нужен до первого кадра.
          */
-        forceStart360CardboardDirect()
+        applyStartDisplayModeDirect()
 
         glView = binding.surfaceView
         glView.setEGLContextClientVersion(3)
@@ -177,26 +175,51 @@ class MainActivity : AppCompatActivity(),
         glView.setRenderer(renderer)
         glView.renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
 
-        glView.setOnTouchListener { _, event ->
-            if (event.actionMasked == MotionEvent.ACTION_DOWN) {
-                lastTouchCoordinates[0] = event.x
-                lastTouchCoordinates[1] = event.y
+        glView.setOnTouchListener { view, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    touchStartX = event.x
+                    touchStartY = event.y
+                    touchStartYawOffset = touchYawOffset
+                    touchStartPitchOffset = touchPitchOffset
+                    true
+                }
+
+                MotionEvent.ACTION_MOVE -> {
+                    if (outputMode != OutputMode.CardboardStereo) {
+                        val w = view.width.coerceAtLeast(1).toFloat()
+                        val h = view.height.coerceAtLeast(1).toFloat()
+                        val dx = event.x - touchStartX
+                        val dy = event.y - touchStartY
+
+                        touchYawOffset =
+                            touchStartYawOffset - (dx / w) * (Math.PI * 2.0).toFloat()
+                        touchPitchOffset =
+                            (touchStartPitchOffset - (dy / h) * Math.PI.toFloat())
+                                .coerceIn(-1.45f, 1.45f)
+
+                        applyPhoneRotation()
+                    }
+                    true
+                }
+
+                MotionEvent.ACTION_UP,
+                MotionEvent.ACTION_CANCEL -> true
+
+                else -> false
             }
-            false
         }
 
-        /*
-         * Тестовый клик. Если он поворачивает камеру, значит nativeLookAtPoint и Renderer.cpp работают.
-         * Можно оставить для диагностики или потом закомментировать.
-         */
-        glView.setOnClickListener {
-            lookAtFromServer(
-                yaw = 90f,
-                pitch = 0f,
-                radius = 150f,
-                duration = 1000
-            )
+        binding.btnPhoneMode.setOnClickListener {
+            setDisplayMode(cardboard = false)
         }
+        binding.btnCardboardMode.setOnClickListener {
+            setDisplayMode(cardboard = true)
+        }
+        binding.btnServerSettings.setOnClickListener {
+            showControlServerIpDialog("Настройки подключения")
+        }
+        updateModeButtons()
 
         NativeLibrary.nativeOnResume(nativeApp)
 
@@ -204,9 +227,10 @@ class MainActivity : AppCompatActivity(),
          * Второй принудительный setOptions уже через GL-поток.
          * Это исправляет ситуацию, когда после nativeOnResume Renderer остаётся в дефолтном MONO_LEFT/PLAIN_FOV.
          */
-        forceStart360CardboardOnGlThread()
+        applyStartDisplayModeOnGlThread()
 
         startTeacherControlWithReachabilityCheck()
+        startPlayerStatusUpdates()
 
         enterImmersiveMode()
 
@@ -497,7 +521,7 @@ class MainActivity : AppCompatActivity(),
         dismissHandler.postDelayed(autoDismiss, CONTROL_SERVER_DIALOG_TIMEOUT_MS)
     }
 
-    private fun forceStart360CardboardDirect() {
+    private fun applyStartDisplayModeDirect() {
         inputLayout = InputLayout.Mono
         inputMode = InputMode.Equirect360
         outputMode = OutputMode.CardboardStereo
@@ -514,13 +538,13 @@ class MainActivity : AppCompatActivity(),
         }
     }
 
-    private fun forceStart360CardboardOnGlThread() {
+    private fun applyStartDisplayModeOnGlThread() {
         inputLayout = InputLayout.Mono
         inputMode = InputMode.Equirect360
         outputMode = OutputMode.CardboardStereo
 
         if (!::glView.isInitialized) {
-            Log.w(TAG, "forceStart360CardboardOnGlThread ignored: glView not initialized")
+            Log.w(TAG, "applyStartDisplayModeOnGlThread ignored: glView not initialized")
             return
         }
 
@@ -1009,7 +1033,7 @@ class MainActivity : AppCompatActivity(),
 
         // После возврата из паузы ещё раз закрепляем Cardboard-режим.
         // Это защищает от ситуации, когда GL renderer пересоздался после pause/resume.
-        forceCurrentModeCardboardOnGlThread("onResume")
+        applyCurrentDisplayModeOnGlThread("onResume")
     }
 
     override fun onPause() {
@@ -1061,10 +1085,10 @@ class MainActivity : AppCompatActivity(),
 
         // Первый кадр VLC иногда приходит уже после пересоздания GL-состояния.
         // Поэтому на первом событии видео повторно отправляем текущий режим в native renderer.
-        forceCurrentModeCardboardOnGlThread("onVideoSizeChanged")
+        applyCurrentDisplayModeOnGlThread("onVideoSizeChanged")
     }
 
-    private fun forceCurrentModeCardboardOnGlThread(reason: String) {
+    private fun applyCurrentDisplayModeOnGlThread(reason: String) {
         if (!FORCE_CARDBOARD_OUTPUT) return
         if (nativeApp == 0L || !::glView.isInitialized) return
 
