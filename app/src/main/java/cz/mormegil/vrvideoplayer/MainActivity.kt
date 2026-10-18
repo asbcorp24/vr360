@@ -62,8 +62,8 @@ class MainActivity : AppCompatActivity(),
          * В режиме CardboardStereo основной трекер головы находится в Renderer.cpp
          * через CardboardHeadTracker. Эти значения нужны как fallback для MonoLeft/MonoRight.
          */
-        private const val YAW_SENSITIVITY = 4.0f
-        private const val PITCH_SENSITIVITY = 4.0f
+        private const val YAW_SENSITIVITY = 1.0f
+        private const val PITCH_SENSITIVITY = 1.0f
         private const val ROLL_SENSITIVITY = 1.0f
 
     }
