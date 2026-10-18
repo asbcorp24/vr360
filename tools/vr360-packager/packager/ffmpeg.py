@@ -149,7 +149,6 @@ def _encoder_args(encoder: str, rendition: Rendition) -> list[str]:
         "-c:v", "libx264",
         "-preset", "medium",
         "-profile:v", "high",
-        "-crf", "20",
         *common,
     ]
 
@@ -173,7 +172,7 @@ def _build_variant_command(
         "-loglevel", "warning",
         "-progress", "pipe:1",
         "-nostats",
-        "-i", str(options.input_file),
+        "-i", str(options.input_file.resolve()),
         "-map", "0:v:0",
         "-map", "0:a:0?",
         "-vf", f"scale={rendition.width}:{rendition.height}:flags=lanczos",
@@ -191,9 +190,9 @@ def _build_variant_command(
         "-hls_playlist_type", "vod",
         "-hls_segment_type", "fmp4",
         "-hls_fmp4_init_filename", "init.mp4",
-        "-hls_segment_filename", str(rendition_dir / "seg_%05d.m4s"),
+        "-hls_segment_filename", "seg_%05d.m4s",
         "-hls_flags", "independent_segments",
-        str(rendition_dir / "playlist.m3u8"),
+        "playlist.m3u8",
     ]
 
     return command
@@ -300,8 +299,15 @@ def package_video(
         if log_callback:
             log_callback(" ".join(f'"{part}"' if " " in part else part for part in command))
 
+        rendition_dir = options.output_dir / rendition.id
+        for stale in rendition_dir.glob("seg_*.m4s"):
+            stale.unlink(missing_ok=True)
+        for stale_name in ("init.mp4", "playlist.m3u8"):
+            (rendition_dir / stale_name).unlink(missing_ok=True)
+
         process = subprocess.Popen(
             command,
+            cwd=rendition_dir,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
