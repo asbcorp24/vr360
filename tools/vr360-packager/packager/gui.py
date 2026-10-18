@@ -61,6 +61,7 @@ class MainWindow(QMainWindow):
 
         self._thread: QThread | None = None
         self._worker: PackagerWorker | None = None
+        self.profile_checks: list[QCheckBox] = []
 
         root = QWidget(self)
         self.setCentralWidget(root)
@@ -134,7 +135,7 @@ class MainWindow(QMainWindow):
             holder_layout.addWidget(checkbox)
             holder_layout.addStretch(1)
             self.table.setCellWidget(row, 0, holder)
-            holder.setProperty("checkbox", checkbox)
+            self.profile_checks.append(checkbox)
 
             label_item = QTableWidgetItem(rendition.label)
             label_item.setData(256, rendition.id)
@@ -201,9 +202,8 @@ class MainWindow(QMainWindow):
         renditions: list[Rendition] = []
 
         for row in range(self.table.rowCount()):
-            holder = self.table.cellWidget(row, 0)
-            checkbox = holder.property("checkbox") if holder is not None else None
-            if checkbox is None or not checkbox.isChecked():
+            checkbox = self.profile_checks[row]
+            if not checkbox.isChecked():
                 continue
 
             label_item = self.table.item(row, 1)
