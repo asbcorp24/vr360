@@ -70,7 +70,7 @@ class VideoTexturePlayer(
                     }
 
                 val cache = SimpleCache(
-                    File(appContext.cacheDir, "vr360-media3-cache"),
+                    File(appContext.noBackupFilesDir, "vr360-media3-cache"),
                     LeastRecentlyUsedCacheEvictor(CACHE_SIZE_BYTES),
                     databaseProvider
                 )
