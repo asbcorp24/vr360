@@ -10,6 +10,7 @@ import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import org.json.JSONObject
 import java.net.URLDecoder
+import java.net.URI
 import java.util.concurrent.TimeUnit
 import kotlin.math.asin
 import kotlin.math.atan2
@@ -292,10 +293,12 @@ class TeacherControlClient(
                     return true
                 }
 
+                val resolvedUrl = resolveMediaUrl(url)
+
                 postPlaybackCommand(
                     ServerPlaybackCommand(
                         type = "load",
-                        url = url,
+                        url = resolvedUrl,
                         positionMs = readPositionMs(root) ?: 0L,
                         autoPlay = root.optBoolean("autoPlay", root.optBoolean("autoplay", false))
                     )
@@ -388,6 +391,48 @@ class TeacherControlClient(
 
     private fun firstNonBlank(vararg values: String): String {
         return values.firstOrNull { it.isNotBlank() }.orEmpty()
+    }
+
+    private fun resolveMediaUrl(raw: String): String {
+        val value = raw.trim()
+        if (value.isBlank()) return ""
+
+        return try {
+            val controlUri = URI(wsUrl)
+            val controlHost = controlUri.host.orEmpty()
+            if (controlHost.isBlank()) return value
+
+            val parsed = URI(value)
+
+            // Relative HLS URLs are resolved against the HTTP service on 8070.
+            if (!parsed.isAbsolute) {
+                val path = if (value.startsWith("/")) value else "/$value"
+                return "http://$controlHost:8070$path"
+            }
+
+            val host = parsed.host.orEmpty()
+            val loopback =
+                host.equals("127.0.0.1", ignoreCase = true) ||
+                host.equals("localhost", ignoreCase = true) ||
+                host == "::1"
+
+            if (!loopback) return value
+
+            val scheme = if (parsed.scheme.equals("https", ignoreCase = true)) "https" else "http"
+            val port = if (parsed.port > 0) parsed.port else if (scheme == "https") 443 else 80
+            val portPart =
+                if ((scheme == "http" && port == 80) || (scheme == "https" && port == 443)) ""
+                else ":$port"
+
+            val path = parsed.rawPath?.ifBlank { "/" } ?: "/"
+            val query = parsed.rawQuery?.let { "?$it" } ?: ""
+            val fragment = parsed.rawFragment?.let { "#$it" } ?: ""
+
+            "$scheme://$controlHost$portPart$path$query$fragment"
+        } catch (e: Exception) {
+            Log.w(tag, "Cannot resolve media URL '$value' against '$wsUrl'", e)
+            value
+        }
     }
 
     private fun readPositionMs(root: JSONObject): Long? {
