@@ -32,8 +32,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 /**
  * Media3/ExoPlayer transport for the existing OpenGL/Cardboard renderer.
  *
- * Supports HLS/CMAF adaptive bitrate, disk cache and the old HTTP MPEG-TS
- * stream during migration. Decoded frames still go through SurfaceTexture
+ * Supports HLS/CMAF adaptive bitrate and disk cache. Decoded frames still
+ * go through SurfaceTexture
  * into the existing C++ Renderer.cpp.
  */
 class VideoTexturePlayer(
@@ -43,8 +43,6 @@ class VideoTexturePlayer(
 
     companion object {
         private const val TAG = "Media3TexturePlayer"
-        private const val DEFAULT_STREAM_URL =
-            "http://192.168.10.1:7088/udp/239.0.0.1:5004"
         private const val FALLBACK_WIDTH = 2048
         private const val FALLBACK_HEIGHT = 1024
         private const val CACHE_SIZE_BYTES = 6L * 1024L * 1024L * 1024L
@@ -101,10 +99,19 @@ class VideoTexturePlayer(
     @Volatile
     private var lowPrecachePercent = 0
 
-    private var streamSourceUrl = DEFAULT_STREAM_URL
+    private var streamSourceUrl = ""
     private var initialized = false
-    private var shouldResumePlayback = true
+    private var shouldResumePlayback = false
     private var reconnectRunnable: Runnable? = null
+
+    @Volatile
+    private var currentVideoHeight = 0
+
+    @Volatile
+    private var maxVideoHeight = 0
+
+    @Volatile
+    private var playbackSpeed = 1.0f
 
     private val positionUpdateRunnable = object : Runnable {
         override fun run() {
@@ -205,9 +212,6 @@ class VideoTexturePlayer(
 
                     Player.STATE_ENDED -> {
                         Log.d(TAG, "ENDED")
-                        if (!isHlsUrl(streamSourceUrl)) {
-                            scheduleStreamReconnect("legacy stream ended")
-                        }
                     }
 
                     Player.STATE_IDLE -> Log.d(TAG, "IDLE")
@@ -226,6 +230,7 @@ class VideoTexturePlayer(
             override fun onVideoSizeChanged(videoSize: VideoSize) {
                 if (videoSize.width <= 0 || videoSize.height <= 0) return
 
+                currentVideoHeight = videoSize.height
                 Log.d(TAG, "video size=" + videoSize.width + "x" + videoSize.height)
                 videoSizeChangedListener.onVideoSizeChanged(
                     null,
@@ -240,17 +245,21 @@ class VideoTexturePlayer(
         })
 
         exo.setVideoSurface(videoSurface)
+        exo.setPlaybackSpeed(playbackSpeed)
         player = exo
 
-        openStream(0L, shouldResumePlayback)
+        if (streamSourceUrl.isNotBlank()) {
+            openStream(0L, shouldResumePlayback)
+        } else {
+            Log.d(TAG, "Player ready; waiting for HLS load command")
+        }
     }
 
     private fun createMediaItem(url: String): MediaItem {
         val builder = MediaItem.Builder().setUri(Uri.parse(url))
 
-        when {
-            isHlsUrl(url) -> builder.setMimeType(MimeTypes.APPLICATION_M3U8)
-            isLegacyTransportStreamUrl(url) -> builder.setMimeType(MimeTypes.VIDEO_MP2T)
+        if (isHlsUrl(url)) {
+            builder.setMimeType(MimeTypes.APPLICATION_M3U8)
         }
 
         return builder.build()
@@ -321,6 +330,29 @@ class VideoTexturePlayer(
         }
     }
 
+    fun stopFromServer() {
+        shouldResumePlayback = false
+        currentPositionMs = 0L
+        bufferedPositionMs = 0L
+        normalizedVideoPosition = 0.0f
+
+        runOnPlayerThread {
+            player?.stop()
+            player?.clearMediaItems()
+            Log.d(TAG, "stopFromServer")
+        }
+    }
+
+    fun setPlaybackSpeed(speed: Float) {
+        val safeSpeed = speed.coerceIn(0.25f, 4.0f)
+        playbackSpeed = safeSpeed
+
+        runOnPlayerThread {
+            player?.setPlaybackSpeed(safeSpeed)
+            Log.d(TAG, "playbackSpeed=$safeSpeed")
+        }
+    }
+
     /**
      * maxHeight <= 0 means unrestricted AUTO ABR.
      */
@@ -336,6 +368,7 @@ class VideoTexturePlayer(
             }
 
             p.trackSelectionParameters = builder.build()
+            this.maxVideoHeight = maxHeight.coerceAtLeast(0)
             Log.d(TAG, "ABR maxHeight=$maxHeight")
         }
     }
@@ -343,6 +376,16 @@ class VideoTexturePlayer(
     fun getCurrentPositionMs(): Long = currentPositionMs
 
     fun getBufferedPositionMs(): Long = bufferedPositionMs
+
+    fun getCurrentVideoHeight(): Int = currentVideoHeight
+
+    fun getMaxVideoHeight(): Int = maxVideoHeight
+
+    fun getPlaybackSpeed(): Float = playbackSpeed
+
+    fun getStreamSourceUrl(): String = streamSourceUrl
+
+    fun isPlaying(): Boolean = player?.isPlaying == true
 
     /**
      * Historical Renderer progress value: normalized 0..1.
@@ -438,7 +481,8 @@ class VideoTexturePlayer(
     }
 
     /**
-     * Accepts both old udpxy HTTP transport and new HLS master.m3u8.
+     * Updates the current HTTP source. The classroom server normally sends
+     * an HLS master.m3u8 URL over WebSocket.
      */
     fun setStreamSourceUrl(url: String) {
         val normalized = normalizeHttpStreamUrl(url)
@@ -561,7 +605,7 @@ class VideoTexturePlayer(
 
             Log.w(TAG, "Reconnecting: $reason")
             openStream(
-                if (isHlsUrl(streamSourceUrl)) resumePosition else 0L,
+                resumePosition,
                 shouldResumePlayback
             )
         }
@@ -615,10 +659,4 @@ class VideoTexturePlayer(
         return clean.endsWith(".m3u8", ignoreCase = true)
     }
 
-    private fun isLegacyTransportStreamUrl(url: String): Boolean {
-        val lower = url.lowercase()
-        return lower.contains("/udp/") ||
-            lower.endsWith(".ts") ||
-            lower.contains(".ts?")
-    }
 }
